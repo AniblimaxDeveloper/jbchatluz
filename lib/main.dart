@@ -13,11 +13,15 @@ void main() async {
   const int appID = 123456789; 
   const String appSign = "MASUKKAN_APP_SIGN_ZEGO_ANDA_DISINI";
 
+  // Pastikan userID tidak kosong untuk inisialisasi awal
+  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'guest_${DateTime.now().millisecondsSinceEpoch}';
+  final currentName = FirebaseAuth.instance.currentUser?.displayName ?? 'Guest';
+
   ZegoUIKitPrebuiltCallInvitationService().init(
     appID: appID,
     appSign: appSign,
-    userID: FirebaseAuth.instance.currentUser?.uid ?? 'guest_${DateTime.now().millisecondsSinceEpoch}',
-    userName: FirebaseAuth.instance.currentUser?.displayName ?? 'Guest',
+    userID: currentUid,
+    userName: currentName,
     plugins: [ZegoUIKitSignalingPlugin()],
   );
 

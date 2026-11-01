@@ -126,7 +126,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 name: widget.roomName,
               )
             ],
-            icon: const ButtonIcon(
+            icon: ButtonIcon(
               icon: Icon(Icons.videocam, color: Colors.white),
             ),
           ),

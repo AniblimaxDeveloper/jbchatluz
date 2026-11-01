@@ -1,26 +1,44 @@
 {
   "project_info": {
-    "project_number": "740230910749",
-    "project_id": "gewhatsapp-3eca1",
-    "storage_bucket": "gewhatsapp-3eca1.firebasestorage.app"
+    "project_number": "1084869510661",
+    "project_id": "jbchatluz",
+    "storage_bucket": "jbchatluz.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:740230910749:android:d55fe810d30c7478b107f4",
+        "mobilesdk_app_id": "1:1084869510661:android:aa939cbb387355746e3e6c",
         "android_client_info": {
-          "package_name": "com.gewhatsapp.app"
+          "package_name": "com.jbchatluz.jbchatluz"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1084869510661-uc3m7u1o5uoh9s34k5gct2mnb46tvik7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jbchatluz.jbchatluz",
+            "certificate_hash": "434dd157f980a757334c8a4f041b46b6edd60be9"
+          }
+        },
+        {
+          "client_id": "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyCdedJvQb6TOna68i7HaqzNTpweJTW9AdA"
+          "current_key": "AIzaSyAutnCG8SzaBiHSpKMJqeYogobAdXj_RKc"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

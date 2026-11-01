@@ -12,7 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # PERBAIKAN 1: Gunakan Java 21 karena AGP 8.12 mewajibkannya
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -25,7 +24,7 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      - name: Align Kotlin, Gradle, AGP and Permissions
+      - name: Align Kotlin, Gradle, NDK, and minSdk
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
@@ -33,6 +32,7 @@ jobs:
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
+          # Perbaikan Kotlin & AGP
           if [ -f android/build.gradle ]; then
             sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
           fi
@@ -40,11 +40,15 @@ jobs:
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
           
-          # PERBAIKAN 2: Set minSdk 23 dan compileSdk/targetSdk 36
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
-          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' android/app/build.gradle
-          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 36/' android/app/build.gradle
+          # PERBAIKAN FATAL: Paksa minSdk 23 dan NDK 27
+          sed -i '/minSdkVersion/d' android/app/build.gradle
+          sed -i '/minSdk /d' android/app/build.gradle
+          sed -i '/ndkVersion/d' android/app/build.gradle
           
+          sed -i '/defaultConfig {/a \        minSdkVersion 23\n        targetSdkVersion 36' android/app/build.gradle
+          sed -i '/android {/a \    ndkVersion "27.0.12077973"\n    compileSdk 36' android/app/build.gradle
+          
+          # Firebase Plugin & Izin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
@@ -60,14 +64,9 @@ jobs:
         run: |
           flutter clean
           flutter pub get
-          
-          # PERBAIKAN 3: Cek apakah logo ada sebelum di-generate
           if [ -f assets/icon.png ]; then
             dart run flutter_launcher_icons
-          else
-            echo "Logo tidak ditemukan, melewati pembuatan icon."
           fi
-          
           flutter build apk --release
 
       - uses: actions/upload-artifact@v4

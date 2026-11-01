@@ -5,6 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -18,6 +22,12 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   bool _isUploading = false;
+  
+  // Fitur Voice Note
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecording = false;
+
+  String get _callId => widget.roomId == 'global' ? 'call_global' : 'call_tech';
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
@@ -34,21 +44,49 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _sendImage() async {
+  void _pickMedia(ImageSource source) async {
     final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-    if (image == null) return;
+    final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
+    if (media == null) return;
+    _uploadFile(File(media.path), 'image');
+  }
 
+  Future<void> _startRecording() async {
+    try {
+      if (await _recorder.hasPermission()) {
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _recorder.start(const RecordConfig(), path: path);
+        setState(() => _isRecording = true);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal merekam: $e')));
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      final path = await _recorder.stop();
+      setState(() => _isRecording = false);
+      if (path != null) {
+        _uploadFile(File(path), 'audio');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
+    }
+  }
+
+  void _uploadFile(File file, String type) async {
     setState(() => _isUploading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
-      final file = File(image.path);
-      final ref = FirebaseStorage.instance.ref().child('chat_media/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final ext = type == 'image' ? 'jpg' : 'm4a';
+      final ref = FirebaseStorage.instance.ref().child('chat_media/${DateTime.now().millisecondsSinceEpoch}.$ext');
       await ref.putFile(file);
       final downloadUrl = await ref.getDownloadURL();
 
       await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-        'type': 'image',
+        'type': type,
         'mediaUrl': downloadUrl,
         'text': '',
         'senderId': user?.uid,
@@ -65,7 +103,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEFEAE2), // Background khas WhatsApp
+      backgroundColor: const Color(0xFFEFEAE2),
       appBar: AppBar(
         backgroundColor: const Color(0xFF00A884),
         foregroundColor: Colors.white,
@@ -79,6 +117,23 @@ class _ChatScreenState extends State<ChatScreen> {
             Text(widget.roomName, style: const TextStyle(fontSize: 18)),
           ],
         ),
+        actions: [
+          // Tombol Panggilan Video dari Zego
+          ZegoSendCallInvitationButton(
+            isVideoCall: true,
+            resourceID: "zegouikit_call",
+            invitees: [
+              ZegoUIKitUser(
+                id: _callId,
+                name: widget.roomName,
+              )
+            ],
+            icon: const ButtonIcon(
+              icon: Icon(Icons.videocam, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Column(
         children: [
@@ -98,7 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
                     final isMe = data['senderId'] == FirebaseAuth.instance.currentUser?.uid;
-                    final isImage = data['type'] == 'image';
+                    final type = data['type'];
                     final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
 
                     return Align(
@@ -108,15 +163,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: isMe ? const Color(0xFFD9FDD3) : Colors.white,
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(12),
-                            topRight: const Radius.circular(12),
-                            bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
-                            bottomRight: isMe ? Radius.zero : const Radius.circular(12),
-                          ),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1))
-                          ]
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -126,11 +173,13 @@ class _ChatScreenState extends State<ChatScreen> {
                                 padding: const EdgeInsets.only(bottom: 4),
                                 child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
                               ),
-                            if (isImage)
+                            if (type == 'image')
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
+                                child: Image.network(data['mediaUrl'], width: 200, fit: BoxFit.cover),
                               )
+                            else if (type == 'audio')
+                              _buildAudioPlayer(data['mediaUrl'], isMe)
                             else
                               Text(data['text'] ?? '', style: const TextStyle(fontSize: 15)),
                             const SizedBox(height: 4),
@@ -146,52 +195,80 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           Container(
             padding: const EdgeInsets.all(8),
-            color: Colors.transparent,
             child: Row(
               children: [
                 Expanded(
                   child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                    ),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)),
                     child: Row(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
-                          onPressed: () {},
+                          icon: const Icon(Icons.camera_alt, color: Colors.grey),
+                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.photo, color: Colors.grey),
+                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery),
                         ),
                         Expanded(
                           child: TextField(
                             controller: _msgController,
-                            decoration: const InputDecoration(
-                              hintText: 'Ketik pesan',
-                              border: InputBorder.none,
-                            ),
+                            decoration: const InputDecoration(hintText: 'Ketik pesan...', border: InputBorder.none),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.attach_file, color: Colors.grey),
-                          onPressed: _isUploading ? null : _sendImage,
                         ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: const Color(0xFF00A884),
-                  radius: 24,
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                    onPressed: _isUploading ? null : _sendMessage,
+                GestureDetector(
+                  onLongPressStart: (_) => _startRecording(),
+                  onLongPressEnd: (_) => _stopRecording(),
+                  child: CircleAvatar(
+                    backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
+                    radius: 24,
+                    child: Icon(
+                      _isRecording ? Icons.mic : Icons.mic_none,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
+                if (!_isRecording) ...[
+                  const SizedBox(width: 8),
+                  CircleAvatar(
+                    backgroundColor: const Color(0xFF00A884),
+                    radius: 24,
+                    child: IconButton(
+                      icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                      onPressed: _isUploading ? null : _sendMessage,
+                    ),
+                  ),
+                ]
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAudioPlayer(String url, bool isMe) {
+    final player = AudioPlayer();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(Icons.play_circle_fill, color: isMe ? Colors.green[800] : const Color(0xFF00A884), size: 32),
+          onPressed: () async {
+            if (player.state == PlayerState.playing) {
+              await player.pause();
+            } else {
+              await player.play(UrlSource(url));
+            }
+          },
+        ),
+        const Text('Pesan Suara', style: TextStyle(fontStyle: FontStyle.italic)),
+      ],
     );
   }
 }

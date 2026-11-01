@@ -24,36 +24,29 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      - name: Fix Android Config & Inject Firebase & Permissions
+      - name: Fix Android Config, Firebase, and Permissions
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
+          sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle
           
-          if [ -f android/app/build.gradle ]; then
-            sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle
-          fi
-          if [ -f android/settings.gradle ]; then
-            sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
-          fi
-          if [ -f android/app/build.gradle ]; then
-            sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
-          fi
+          sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
+          sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
-          # Tambahkan Izin Internet & Media
+          # Tambahkan Izin Rekam Suara & Kamera
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
 
       - run: flutter pub get
-
       - run: dart run flutter_launcher_icons
-
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4

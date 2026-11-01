@@ -6,7 +6,25 @@ import 'screens/chat_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    runApp(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              'Gagal memuat Firebase:\n$e\n\nCek google-services.json dan package name.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ),
+      ),
+    ));
+    return;
+  }
   runApp(const JBChatLuzApp());
 }
 

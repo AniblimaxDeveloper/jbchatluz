@@ -10,15 +10,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
-  // GANTI DENGAN APP ID DAN APP SIGN DARI ZEGOCLOUD
   const int appID = 123456789; 
   const String appSign = "MASUKKAN_APP_SIGN_ZEGO_ANDA_DISINI";
 
   ZegoUIKitPrebuiltCallInvitationService().init(
     appID: appID,
     appSign: appSign,
-    userID: FirebaseAuth.instance.currentUser?.uid ?? 'unknown',
-    userName: FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+    userID: FirebaseAuth.instance.currentUser?.uid ?? 'guest_${DateTime.now().millisecondsSinceEpoch}',
+    userName: FirebaseAuth.instance.currentUser?.displayName ?? 'Guest',
     plugins: [ZegoUIKitSignalingPlugin()],
   );
 

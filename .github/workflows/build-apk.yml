@@ -24,14 +24,17 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      - name: Fix Android Config, Firebase, and Permissions
+      - name: Fix Android Config, Compile SDK 36, and Permissions
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
-          sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle
+          
+          # Paksa minSdk 23 dan compileSdk 36
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' android/app/build.gradle
           
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle

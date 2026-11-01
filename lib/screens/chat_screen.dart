@@ -23,7 +23,6 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   bool _isUploading = false;
-  
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
 

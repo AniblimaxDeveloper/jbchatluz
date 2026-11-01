@@ -17,12 +17,11 @@ dependencies:
   image_picker: ^1.1.2
   shared_preferences: ^2.3.2
   intl: ^0.19.0
-  # Turunkan versi record agar kompatibel dengan Flutter 3.27
-  record: ^5.0.0 
+  record: ^5.1.2
   audioplayers: ^6.1.0
   path_provider: ^2.1.4
-  zego_uikit_prebuilt_call: ^4.0.1
-  zego_uikit_signaling_plugin: ^2.7.0
+  zego_uikit_prebuilt_call: ^4.17.1
+  zego_uikit_signaling_plugin: ^2.8.2
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
@@ -39,3 +38,7 @@ flutter_launcher_icons:
   ios: false
   image_path: "assets/icon.png"
   min_sdk_android: 23
+
+dependency_overrides:
+  record_linux: ^1.0.0
+  record_platform_interface: ^1.4.0

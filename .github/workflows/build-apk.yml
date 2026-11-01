@@ -36,7 +36,6 @@ jobs:
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
-          # Tambahkan Izin Rekam Suara & Kamera
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
@@ -45,6 +44,7 @@ jobs:
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
 
+      - run: flutter clean
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - run: flutter build apk --release

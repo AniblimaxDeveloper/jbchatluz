@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
+import 'package:zego_uikit/zego_uikit.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -23,7 +24,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   bool _isUploading = false;
   
-  // Fitur Voice Note
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
 
@@ -118,7 +118,6 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          // Tombol Panggilan Video dari Zego
           ZegoSendCallInvitationButton(
             isVideoCall: true,
             resourceID: "zegouikit_call",

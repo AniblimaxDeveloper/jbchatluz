@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
+import 'package:zego_uikit_signaling_plugin/zego_uikit_signaling_plugin.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_list_screen.dart';
 
@@ -10,8 +11,8 @@ void main() async {
   await Firebase.initializeApp();
 
   // GANTI DENGAN APP ID DAN APP SIGN DARI ZEGOCLOUD
-  const int appID = 1177731752; 
-  const String appSign "0e41c9efeda472a0b6e3ae858a12b8b99c6a2f4c1126aa111269a8408539ff67";
+  const int appID = 123456789; 
+  const String appSign = "MASUKKAN_APP_SIGN_ZEGO_ANDA_DISINI";
 
   ZegoUIKitPrebuiltCallInvitationService().init(
     appID: appID,

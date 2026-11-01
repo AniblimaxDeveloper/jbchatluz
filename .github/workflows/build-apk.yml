@@ -24,11 +24,21 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      # PENTING: Memasukkan file google-services.json dari GitHub Secrets
+      # PERBAIKAN: Paksa AndroidX dan minSdk 23
+      - name: Fix AndroidX and minSdk
+        run: |
+          echo "android.useAndroidX=true" >> android/gradle.properties
+          echo "android.enableJetifier=true" >> android/gradle.properties
+          echo "flutter.minSdkVersion=23" >> android/gradle.properties
+
+      # Setup Firebase
       - name: Setup Google Services
         run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
 
       - run: flutter pub get
+
+      # Generate Icon Logo Baru
+      - run: dart run flutter_launcher_icons
 
       - run: flutter build apk --release
 

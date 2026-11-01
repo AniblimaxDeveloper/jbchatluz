@@ -8,8 +8,6 @@ import 'package:intl/intl.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
-import 'package:zego_uikit/zego_uikit.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -25,8 +23,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
-
-  String get _callId => widget.roomId == 'global' ? 'call_global' : 'call_tech';
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
@@ -116,22 +112,6 @@ class _ChatScreenState extends State<ChatScreen> {
             Text(widget.roomName, style: const TextStyle(fontSize: 18)),
           ],
         ),
-        actions: [
-          ZegoSendCallInvitationButton(
-            isVideoCall: true,
-            resourceID: "zegouikit_call",
-            invitees: [
-              ZegoUIKitUser(
-                id: _callId,
-                name: widget.roomName,
-              )
-            ],
-            icon: ButtonIcon(
-              icon: Icon(Icons.videocam, color: Colors.white),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: Column(
         children: [

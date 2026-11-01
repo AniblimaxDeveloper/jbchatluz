@@ -20,9 +20,6 @@ dependencies:
   record: ^5.1.2
   audioplayers: ^6.1.0
   path_provider: ^2.1.4
-  # Turunkan versi prebuilt call agar cocok dengan signaling plugin 2.8.1
-  zego_uikit_prebuilt_call: 4.13.1
-  zego_uikit_signaling_plugin: 2.8.1
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

@@ -1,30 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
-import 'package:zego_uikit_signaling_plugin/zego_uikit_signaling_plugin.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-
-  const int appID = 123456789; 
-  const String appSign = "MASUKKAN_APP_SIGN_ZEGO_ANDA_DISINI";
-
-  // Pastikan userID tidak kosong untuk inisialisasi awal
-  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? 'guest_${DateTime.now().millisecondsSinceEpoch}';
-  final currentName = FirebaseAuth.instance.currentUser?.displayName ?? 'Guest';
-
-  ZegoUIKitPrebuiltCallInvitationService().init(
-    appID: appID,
-    appSign: appSign,
-    userID: currentUid,
-    userName: currentName,
-    plugins: [ZegoUIKitSignalingPlugin()],
-  );
-
   runApp(const JBChatLuzApp());
 }
 

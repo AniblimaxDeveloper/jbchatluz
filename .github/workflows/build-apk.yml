@@ -24,23 +24,24 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      # PERBAIKAN TOTAL: Hancurkan error minSdk 21
-      - name: Fix AndroidX and minSdk
+      # PERBAIKAN: Alokasi Memori Gradle & Nonaktifkan File Watching
+      - name: Fix Gradle Memory and Settings
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           
-          # Ganti variabel flutter.minSdkVersion (yang bernilai 21) menjadi angka 23 murni
+          # Alokasi 4GB Heap Memory dan 1GB Metaspace untuk mencegah OOM
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
+          
+          # Nonaktifkan daemon dan file watching agar tidak error "Already watching path"
+          echo "org.gradle.daemon=false" >> android/gradle.properties
+          echo "org.gradle.vfs.watch=false" >> android/gradle.properties
+
           if [ -f android/app/build.gradle ]; then
             sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle
           fi
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle.kts
-          fi
-          
-          # Paksa di file Manifest jika masih ngotot 21
-          if [ -f android/app/src/main/AndroidManifest.xml ]; then
-            sed -i 's/minSdkVersion="21"/minSdkVersion="23"/g' android/app/src/main/AndroidManifest.xml
           fi
 
       # Setup Firebase
@@ -49,7 +50,6 @@ jobs:
 
       - run: flutter pub get
 
-      # Generate Icon Logo Baru
       - run: dart run flutter_launcher_icons
 
       - run: flutter build apk --release

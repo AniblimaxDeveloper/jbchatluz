@@ -12,10 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # PERBAIKAN 1: Gunakan Java 21 karena AGP 8.12 mewajibkannya
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21' 
 
       - uses: subosito/flutter-action@v2
         with:
@@ -26,30 +27,27 @@ jobs:
 
       - name: Align Kotlin, Gradle, AGP and Permissions
         run: |
-          # 1. Gradle Properties & Memory
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          # 2. Sinkronisasi versi Kotlin di build.gradle & settings.gradle
           if [ -f android/build.gradle ]; then
             sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
           fi
           sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "2.2.21"/' android/settings.gradle
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
-          
-          # 3. Gradle Wrapper 8.14.3
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
           
-          # 4. Konfigurasi app/build.gradle
+          # PERBAIKAN 2: Set minSdk 23 dan compileSdk/targetSdk 36
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
           sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' android/app/build.gradle
+          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 36/' android/app/build.gradle
           
-          # 5. Firebase & Izin Manifest
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
+          
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
@@ -62,7 +60,14 @@ jobs:
         run: |
           flutter clean
           flutter pub get
-          dart run flutter_launcher_icons
+          
+          # PERBAIKAN 3: Cek apakah logo ada sebelum di-generate
+          if [ -f assets/icon.png ]; then
+            dart run flutter_launcher_icons
+          else
+            echo "Logo tidak ditemukan, melewati pembuatan icon."
+          fi
+          
           flutter build apk --release
 
       - uses: actions/upload-artifact@v4

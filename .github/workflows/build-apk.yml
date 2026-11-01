@@ -43,8 +43,8 @@ jobs:
 
       - name: Setup Google Services
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
-          # Validasi apakah JSON valid
+          # Hapus enter/spasi tersembunyi sebelum decode
+          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | tr -d '\n' | tr -d ' ' | base64 -d > android/app/google-services.json
           python3 -m json.tool android/app/google-services.json > /dev/null || (echo "ERROR: Isi Secret GOOGLE_SERVICES_JSON tidak valid!" && exit 1)
 
       - run: flutter pub get

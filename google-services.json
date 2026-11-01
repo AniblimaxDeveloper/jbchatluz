@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1084869510661",
+    "project_id": "jbchatluz",
+    "storage_bucket": "jbchatluz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1084869510661:android:aa939cbb387355746e3e6c",
+        "android_client_info": {
+          "package_name": "com.jbchatluz.jbchatluz"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAutnCG8SzaBiHSpKMJqeYogobAdXj_RKc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

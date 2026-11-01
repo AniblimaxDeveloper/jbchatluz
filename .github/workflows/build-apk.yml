@@ -24,28 +24,33 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      - name: Fix Android Config, Compile SDK 36, and Permissions
+      - name: Fix Android Config, Kotlin 2.2, and Permissions
         run: |
+          # 1. Perbaikan Gradle & Memori
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          # Hapus baris compileSdk/minSdk lama dan ganti dengan angka statis
-          sed -i '/compileSdk/d' android/app/build.gradle
-          sed -i '/minSdk/d' android/app/build.gradle
-          sed -i '/targetSdk/d' android/app/build.gradle
+          # 2. Paksa minSdk 23 dan compileSdk 36
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' android/app/build.gradle
           
-          # Sisipkan angka statis
-          sed -i '/defaultConfig {/a \        minSdk 23\n        targetSdk 36' android/app/build.gradle
-          sed -i '/android {/a \    compileSdk 36' android/app/build.gradle
+          # 3. Perbarui Kotlin Gradle Plugin ke 2.2.21 di settings.gradle
+          sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "2.2.21"/' android/settings.gradle
           
-          # Firebase Plugin
+          # 4. Perbarui Android Gradle Plugin (AGP) ke 8.12.1
+          sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
+          
+          # 5. Perbarui Gradle Wrapper ke 8.14.3
+          sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
+          
+          # 6. Firebase Plugin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
-          # Izin
+          # 7. Izin
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml

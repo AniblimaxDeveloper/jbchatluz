@@ -41,11 +41,23 @@ jobs:
             sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           fi
 
-      - name: Setup Google Services
+      - name: Setup Google Services (Python Decoder)
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          # Hapus enter/spasi tersembunyi sebelum decode
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | tr -d '\n' | tr -d ' ' | base64 -d > android/app/google-services.json
-          python3 -m json.tool android/app/google-services.json > /dev/null || (echo "ERROR: Isi Secret GOOGLE_SERVICES_JSON tidak valid!" && exit 1)
+          python3 -c "
+          import base64, os
+          # Ambil dari environment
+          b64_str = os.environ.get('GOOGLE_SERVICES_B64', '')
+          # Hapus semua spasi dan enter
+          b64_str = ''.join(b64_str.split())
+          # Tambahkan padding otomatis jika kurang
+          b64_str += '=' * (-len(b64_str) % 4)
+          # Decode dan tulis ke file
+          with open('android/app/google-services.json', 'wb') as f:
+              f.write(base64.b64decode(b64_str))
+          "
+          python3 -m json.tool android/app/google-services.json > /dev/null || (echo "ERROR: Secret tidak valid!" && exit 1)
 
       - run: flutter pub get
 

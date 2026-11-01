@@ -23,6 +23,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
+  bool _isTyping = false;
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
@@ -36,6 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
       'senderId': user?.uid,
       'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
       'timestamp': FieldValue.serverTimestamp(),
+      'status': 'sent', // Status untuk centang
     });
   }
 
@@ -87,6 +89,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'senderId': user?.uid,
         'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
         'timestamp': FieldValue.serverTimestamp(),
+        'status': 'sent',
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal upload: $e')));
@@ -98,9 +101,9 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEFEAE2),
+      backgroundColor: const Color(0xFFEFEAE2), // Background chat khas WhatsApp
       appBar: AppBar(
-        backgroundColor: const Color(0xFF00A884),
+        backgroundColor: const Color(0xFF075E54),
         foregroundColor: Colors.white,
         title: Row(
           children: [
@@ -109,13 +112,31 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
             ),
             const SizedBox(width: 12),
-            Text(widget.roomName, style: const TextStyle(fontSize: 18)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (_isTyping) // Indikator sedang mengetik
+                  const Text('sedang mengetik...', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
+              ],
+            ),
           ],
         ),
+        actions: [
+          IconButton(icon: const Icon(Icons.videocam), onPressed: () {}), // Tombol VC
+          IconButton(icon: const Icon(Icons.call), onPressed: () {}),     // Tombol Voice Call
+          PopupMenuButton<String>(
+            onSelected: (value) {},
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'info', child: Text('Info Kontak')),
+              const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat')),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
-          if (_isUploading) const LinearProgressIndicator(color: Color(0xFF00A884)),
+          if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
@@ -140,8 +161,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: isMe ? const Color(0xFFD9FDD3) : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          color: isMe ? const Color(0xFFD9FDD3) : Colors.white, // Warna bubble
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(12),
+                            topRight: const Radius.circular(12),
+                            bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+                            bottomRight: isMe ? Radius.zero : const Radius.circular(12),
+                          ),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1))
+                          ]
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -149,19 +178,28 @@ class _ChatScreenState extends State<ChatScreen> {
                             if (!isMe)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
+                                child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF00A884))),
                               ),
                             if (type == 'image')
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(data['mediaUrl'], width: 200, fit: BoxFit.cover),
+                                child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
                               )
                             else if (type == 'audio')
                               _buildAudioPlayer(data['mediaUrl'], isMe)
                             else
-                              Text(data['text'] ?? '', style: const TextStyle(fontSize: 15)),
+                              Text(data['text'] ?? '', style: const TextStyle(fontSize: 16)),
                             const SizedBox(height: 4),
-                            Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(timestamp, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                if (isMe) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.done_all, size: 16, color: Colors.blue), // Centang Biru
+                                ]
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -171,6 +209,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          // Kolom Ketik
           Container(
             padding: const EdgeInsets.all(8),
             child: Row(
@@ -181,18 +220,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Row(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.camera_alt, color: Colors.grey),
-                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.photo, color: Colors.grey),
-                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery),
+                          icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+                          onPressed: () {},
                         ),
                         Expanded(
                           child: TextField(
                             controller: _msgController,
-                            decoration: const InputDecoration(hintText: 'Ketik pesan...', border: InputBorder.none),
+                            decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
+                            onChanged: (val) {
+                              setState(() { _isTyping = val.isNotEmpty; });
+                            },
                           ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.attach_file, color: Colors.grey),
+                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.camera_alt, color: Colors.grey),
+                          onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera),
                         ),
                       ],
                     ),
@@ -204,18 +250,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   onLongPressEnd: (_) => _stopRecording(),
                   child: CircleAvatar(
                     backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
-                    radius: 24,
-                    child: Icon(
-                      _isRecording ? Icons.mic : Icons.mic_none,
-                      color: Colors.white,
-                    ),
+                    radius: 26,
+                    child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white),
                   ),
                 ),
                 if (!_isRecording) ...[
                   const SizedBox(width: 8),
                   CircleAvatar(
                     backgroundColor: const Color(0xFF00A884),
-                    radius: 24,
+                    radius: 26,
                     child: IconButton(
                       icon: const Icon(Icons.send, color: Colors.white, size: 20),
                       onPressed: _isUploading ? null : _sendMessage,
@@ -236,7 +279,7 @@ class _ChatScreenState extends State<ChatScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: Icon(Icons.play_circle_fill, color: isMe ? Colors.green[800] : const Color(0xFF00A884), size: 32),
+          icon: Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36),
           onPressed: () async {
             if (player.state == PlayerState.playing) {
               await player.pause();
@@ -245,7 +288,7 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           },
         ),
-        const Text('Pesan Suara', style: TextStyle(fontStyle: FontStyle.italic)),
+        const Text('Pesan Suara', style: TextStyle(fontStyle: FontStyle.italic, fontSize: 15)),
       ],
     );
   }

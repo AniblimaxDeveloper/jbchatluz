@@ -4,11 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
   final String roomName;
-
   const ChatScreen({super.key, required this.roomId, required this.roomName});
 
   @override
@@ -40,17 +40,13 @@ class _ChatScreenState extends State<ChatScreen> {
     if (image == null) return;
 
     setState(() => _isUploading = true);
-
     try {
       final user = FirebaseAuth.instance.currentUser;
       final file = File(image.path);
-      
-      // 1. Upload ke Firebase Storage
       final ref = FirebaseStorage.instance.ref().child('chat_media/${DateTime.now().millisecondsSinceEpoch}.jpg');
       await ref.putFile(file);
       final downloadUrl = await ref.getDownloadURL();
 
-      // 2. Simpan link ke Firestore
       await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
         'type': 'image',
         'mediaUrl': downloadUrl,
@@ -69,18 +65,27 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.roomName)),
+      backgroundColor: const Color(0xFFEFEAE2), // Background khas WhatsApp
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF00A884),
+        foregroundColor: Colors.white,
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.white24,
+              child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
+            ),
+            const SizedBox(width: 12),
+            Text(widget.roomName, style: const TextStyle(fontSize: 18)),
+          ],
+        ),
+      ),
       body: Column(
         children: [
-          if (_isUploading) const LinearProgressIndicator(),
+          if (_isUploading) const LinearProgressIndicator(color: Color(0xFF00A884)),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('rooms')
-                  .doc(widget.roomId)
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
+              stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 final docs = snapshot.data!.docs;
@@ -88,45 +93,48 @@ class _ChatScreenState extends State<ChatScreen> {
 
                 return ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
                     final isMe = data['senderId'] == FirebaseAuth.instance.currentUser?.uid;
                     final isImage = data['type'] == 'image';
+                    final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
 
                     return Align(
                       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: isMe ? Colors.blue.shade100 : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(12),
+                          color: isMe ? const Color(0xFFD9FDD3) : Colors.white,
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(12),
+                            topRight: const Radius.circular(12),
+                            bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+                            bottomRight: isMe ? Radius.zero : const Radius.circular(12),
+                          ),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1))
+                          ]
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             if (!isMe)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
                               ),
                             if (isImage)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  data['mediaUrl'],
-                                  width: 200,
-                                  fit: BoxFit.cover,
-                                  loadingBuilder: (context, child, loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return const SizedBox(width: 200, height: 200, child: Center(child: CircularProgressIndicator()));
-                                  },
-                                ),
+                                child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
                               )
                             else
-                              Text(data['text'] ?? ''),
+                              Text(data['text'] ?? '', style: const TextStyle(fontSize: 15)),
+                            const SizedBox(height: 4),
+                            Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                           ],
                         ),
                       ),
@@ -136,27 +144,52 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.image, color: Colors.blue),
-                    onPressed: _isUploading ? null : _sendImage,
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _msgController,
-                      decoration: const InputDecoration(hintText: 'Ketik pesan...', border: OutlineInputBorder()),
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.transparent,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+                          onPressed: () {},
+                        ),
+                        Expanded(
+                          child: TextField(
+                            controller: _msgController,
+                            decoration: const InputDecoration(
+                              hintText: 'Ketik pesan',
+                              border: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.attach_file, color: Colors.grey),
+                          onPressed: _isUploading ? null : _sendImage,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(onPressed: _isUploading ? null : _sendMessage, icon: const Icon(Icons.send)),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  backgroundColor: const Color(0xFF00A884),
+                  radius: 24,
+                  child: IconButton(
+                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                    onPressed: _isUploading ? null : _sendMessage,
+                  ),
+                ),
+              ],
             ),
-          )
+          ),
         ],
       ),
     );

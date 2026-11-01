@@ -15,6 +15,9 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _loading = false;
   bool _isLogin = true;
 
+  // GANTI DENGAN WEB CLIENT ID DARI FIREBASE ANDA
+  final String _webClientId = "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com";
+
   Future<void> _submitEmail() async {
     setState(() => _loading = true);
     try {
@@ -39,7 +42,10 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _loading = true);
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        serverClientId: _webClientId, // Kunci perbaikan error 10
+      );
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       if (googleUser == null) return;
 
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
@@ -59,50 +65,78 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              const Icon(Icons.forum, size: 80, color: Colors.blueAccent),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : _signInWithGoogle,
-                  icon: const Icon(Icons.g_mobiledata, size: 32, color: Colors.red),
-                  label: const Text('Masuk dengan Google'),
-                ),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.forum, size: 80, color: Color(0xFF00A884)),
+                  const SizedBox(height: 16),
+                  const Text('JBchatluz', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _signInWithGoogle,
+                      icon: const Icon(Icons.g_mobiledata, size: 32, color: Colors.red),
+                      label: const Text('Masuk dengan Google', style: TextStyle(color: Colors.black87)),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('ATAU GUNAKAN EMAIL', style: TextStyle(color: Colors.grey)),
+                  ),
+                  TextField(
+                    controller: _email,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _password,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF00A884),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _loading ? null : _submitEmail,
+                      child: _loading ? const CircularProgressIndicator(color: Colors.white) : Text(_isLogin ? 'Login' : 'Daftar'),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _isLogin = !_isLogin),
+                    child: Text(_isLogin ? 'Belum punya akun? Daftar' : 'Sudah punya akun? Login', style: const TextStyle(color: Color(0xFF00A884))),
+                  ),
+                ],
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('ATAU GUNAKAN EMAIL'),
-              ),
-              TextField(
-                controller: _email,
-                decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _password,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: FilledButton(
-                  onPressed: _loading ? null : _submitEmail,
-                  child: _loading ? const CircularProgressIndicator() : Text(_isLogin ? 'Login' : 'Daftar'),
-                ),
-              ),
-              TextButton(
-                onPressed: () => setState(() => _isLogin = !_isLogin),
-                child: Text(_isLogin ? 'Belum punya akun? Daftar' : 'Sudah punya akun? Login'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

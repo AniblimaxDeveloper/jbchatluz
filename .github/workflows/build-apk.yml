@@ -24,13 +24,24 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      # PERBAIKAN TOTAL: Paksa AndroidX dan minSdk 23 langsung ke build.gradle
+      # PERBAIKAN TOTAL: Hancurkan error minSdk 21
       - name: Fix AndroidX and minSdk
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
-          sed -i 's/minSdkVersion 21/minSdkVersion 23/' android/app/build.gradle
+          
+          # Ganti variabel flutter.minSdkVersion (yang bernilai 21) menjadi angka 23 murni
+          if [ -f android/app/build.gradle ]; then
+            sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle
+          fi
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/flutter.minSdkVersion/23/g' android/app/build.gradle.kts
+          fi
+          
+          # Paksa di file Manifest jika masih ngotot 21
+          if [ -f android/app/src/main/AndroidManifest.xml ]; then
+            sed -i 's/minSdkVersion="21"/minSdkVersion="23"/g' android/app/src/main/AndroidManifest.xml
+          fi
 
       # Setup Firebase
       - name: Setup Google Services

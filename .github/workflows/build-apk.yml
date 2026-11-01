@@ -24,12 +24,13 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      # PERBAIKAN: Paksa AndroidX dan minSdk 23
+      # PERBAIKAN TOTAL: Paksa AndroidX dan minSdk 23 langsung ke build.gradle
       - name: Fix AndroidX and minSdk
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
-          echo "flutter.minSdkVersion=23" >> android/gradle.properties
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
+          sed -i 's/minSdkVersion 21/minSdkVersion 23/' android/app/build.gradle
 
       # Setup Firebase
       - name: Setup Google Services

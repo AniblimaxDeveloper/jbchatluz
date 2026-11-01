@@ -32,13 +32,20 @@ jobs:
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          # Paksa minSdk 23 dan compileSdk 36
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle
-          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' android/app/build.gradle
+          # Hapus baris compileSdk/minSdk lama dan ganti dengan angka statis
+          sed -i '/compileSdk/d' android/app/build.gradle
+          sed -i '/minSdk/d' android/app/build.gradle
+          sed -i '/targetSdk/d' android/app/build.gradle
           
+          # Sisipkan angka statis
+          sed -i '/defaultConfig {/a \        minSdk 23\n        targetSdk 36' android/app/build.gradle
+          sed -i '/android {/a \    compileSdk 36' android/app/build.gradle
+          
+          # Firebase Plugin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
+          # Izin
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml

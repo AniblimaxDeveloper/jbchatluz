@@ -34,12 +34,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String _roomType = "group";
   bool _isSearching = false;
   String _searchQuery = "";
+
+  // State untuk Presence & Typing
   bool _isOtherTyping = false;
   bool _isMeTyping = false;
   Timer? _typingTimer;
-
-  // State Disappearing Messages (dalam milidetik)
-  int _disappearingDuration = 0; 
 
   @override
   void initState() {
@@ -48,6 +47,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadRoomInfo();
     _listenToTyping();
     _markMessagesAsRead();
+  }
+
+  @override
+  void dispose() {
+    _typingTimer?.cancel();
+    _msgController.dispose();
+    _recorder.dispose();
+    super.dispose();
   }
 
   void _listenToTyping() {
@@ -71,21 +78,27 @@ class _ChatScreenState extends State<ChatScreen> {
     final myUid = FirebaseAuth.instance.currentUser?.uid;
     if (myUid == null) return;
 
+    if (!_isMeTyping && text.isNotEmpty) {
       _isMeTyping = true;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.': true});
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': true});
     }
 
     _typingTimer?.cancel();
     _typingTimer = Timer(const Duration(seconds: 2), () {
       _isMeTyping = false;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.': false});
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': false});
     });
   }
 
   void _markMessagesAsRead() async {
     if (widget.roomId == 'global') return;
     final myUid = FirebaseAuth.instance.currentUser?.uid;
-    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').where('senderId', isNotEqualTo: myUid).where('status', isEqualTo: 'sent').get();
+    if (myUid == null) return;
+    final snapshot = await FirebaseFirestore.instance
+        .collection('rooms').doc(widget.roomId).collection('messages')
+        .where('senderId', isNotEqualTo: myUid)
+        .where('status', isEqualTo: 'sent')
+        .get();
     final batch = FirebaseFirestore.instance.batch();
     for (var doc in snapshot.docs) {
       batch.update(doc.reference, {'status': 'read'});
@@ -101,7 +114,6 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _roomType = data['type'] ?? 'group';
         _isAdmin = (data['admins'] as List?)?.contains(FirebaseAuth.instance.currentUser?.uid) ?? false;
-        _disappearingDuration = data['disappearingDuration'] ?? 0;
       });
     }
   }
@@ -113,18 +125,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _setDisappearingMessages(int durationInMillis) async {
-    if (widget.roomId == 'global') {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak bisa mengatur di Room Global')));
-      return;
-    }
-    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
-      'disappearingDuration': durationInMillis,
-    });
-    setState(() => _disappearingDuration = durationInMillis);
-    if (mounted) Navigator.pop(context);
-  }
-
   void _sendMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
@@ -134,13 +134,6 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _replyingTo = null);
 
     final user = FirebaseAuth.instance.currentUser;
-    
-    // Hitung waktu kedaluwarsa
-    Timestamp? expiresAt;
-    if (_disappearingDuration > 0) {
-      expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-    }
-
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
       'type': 'text',
       'text': text,
@@ -150,13 +143,13 @@ class _ChatScreenState extends State<ChatScreen> {
       'replyTo': replyData,
       'reactions': {},
       'status': 'sent',
-      'expiresAt': expiresAt,
     });
 
     if (widget.roomId != 'global') {
       FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
         'lastMessage': text,
         'lastMessageTime': FieldValue.serverTimestamp(),
+        'typing.${user?.uid}': false,
       });
     }
   }
@@ -202,11 +195,6 @@ class _ChatScreenState extends State<ChatScreen> {
       await ref.putFile(file);
       final downloadUrl = await ref.getDownloadURL();
 
-      Timestamp? expiresAt;
-      if (_disappearingDuration > 0) {
-        expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-      }
-
       await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
         'type': type,
         'mediaUrl': downloadUrl,
@@ -215,8 +203,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
         'timestamp': FieldValue.serverTimestamp(),
         'reactions': {},
-      'status': 'sent',
-        'expiresAt': expiresAt,
+        'status': 'sent',
       });
 
       if (widget.roomId != 'global') {
@@ -346,8 +333,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   Text(widget.roomName, style: const TextStyle(fontSize: 18)),
                   if (_isOtherTyping)
                     const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                  else if (_disappearingDuration > 0)
-                    const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                  else if (_roomType == 'group' || _roomType == 'channel')
+                    Text('${_roomType == 'group' ? 'Grup' : 'Saluran'}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
                 ],
               ),
             ],
@@ -368,29 +355,6 @@ class _ChatScreenState extends State<ChatScreen> {
               if (value == 'clear') _clearChat();
             },
             itemBuilder: (context) => [
-              if (widget.roomId != 'global')
-                PopupMenuItem(
-                  value: 'disappearing',
-                  child: const Text('Pesan Sementara'),
-                  onTap: () {
-                    // Dialog untuk memilih durasi
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Pesan Sementara'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ListTile(title: const Text('Nonaktifkan'), onTap: () => _setDisappearingMessages(0)),
-                            ListTile(title: const Text('1 Menit'), onTap: () => _setDisappearingMessages(60000)),
-                            ListTile(title: const Text('1 Jam'), onTap: () => _setDisappearingMessages(3600000)),
-                            ListTile(title: const Text('1 Hari'), onTap: () => _setDisappearingMessages(86400000)),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
               const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat')),
             ],
           ),
@@ -429,24 +393,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                   
-                  final now = DateTime.now();
-                  
-                  // Filter Pencarian & Disappearing Messages
                   final docs = snapshot.data!.docs.where((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    
-                    // Cek Kedaluwarsa
-                    if (data['expiresAt'] != null) {
-                      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
-                      if (now.isAfter(expiresAt)) {
-                        // Hapus pesan secara diam-diam jika waktu habis
-                        doc.reference.delete();
-                        return false;
-                      }
-                    }
-
-                    // Cek Pencarian
                     if (_searchQuery.isEmpty) return true;
+                    final data = doc.data() as Map<String, dynamic>;
                     final text = data['text']?.toString().toLowerCase() ?? '';
                     return text.contains(_searchQuery);
                   }).toList();
@@ -525,11 +474,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    if (data['expiresAt'] != null)
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 4),
-                                        child: Icon(Icons.timer, size: 12, color: Colors.grey),
-                                      ),
                                     Text(timestamp, style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                     if (isMe) ...[
                                       const SizedBox(width: 4),
@@ -537,7 +481,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         Icons.done_all, 
                                         size: 16, 
                                         color: data['status'] == 'read' ? Colors.blue : Colors.grey,
-                                      ),
+                                      ), 
                                     ]
                                   ],
                                 ),

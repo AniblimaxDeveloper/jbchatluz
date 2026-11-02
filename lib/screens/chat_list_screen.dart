@@ -19,6 +19,35 @@ class ChatListScreen extends StatefulWidget {
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
+  List<String> _pinnedRooms = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPinnedRooms();
+  }
+
+  Future<void> _loadPinnedRooms() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _pinnedRooms = prefs.getStringList('pinned_rooms') ?? [];
+    });
+  }
+
+  Future<void> _togglePin(String roomId) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      if (_pinnedRooms.contains(roomId)) {
+        _pinnedRooms.remove(roomId);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat dilepas dari sematan')));
+      } else {
+        _pinnedRooms.add(roomId);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat disematkan')));
+      }
+    });
+    await prefs.setStringList('pinned_rooms', _pinnedRooms);
+  }
+
   void _showCreateMenu() {
     showModalBottomSheet(
       context: context,
@@ -87,39 +116,75 @@ class _ChatListScreenState extends State<ChatListScreen> {
           const Divider(height: 1),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              // Mengambil room di mana user adalah anggota
               stream: FirebaseFirestore.instance
                   .collection('rooms')
                   .where('members', arrayContains: user?.uid)
-                  .orderBy('lastMessageTime', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 
                 final rooms = snapshot.data!.docs;
                 
-                // Tambahkan Room Global secara statis jika belum ada di DB
-                List<Widget> tiles = [
-                  _buildChatTile(context, 'Ruang Global', 'Ngobrol dengan semua orang', 'Sekarang', 'https://i.pravatar.cc/150?img=11', 'global', isDark),
-                ];
+                List<Map<String, dynamic>> allRooms = [];
+                // Tambahkan Room Global statis
+                allRooms.add({
+                  'id': 'global',
+                  'name': 'Ruang Global',
+                  'lastMessage': 'Ngobrol dengan semua orang',
+                  'time': 'Sekarang',
+                  'avatar': 'https://i.pravatar.cc/150?img=11',
+                  'type': 'global',
+                  'lastMessageTime': Timestamp.now(),
+                });
 
                 for (var doc in rooms) {
                   final data = doc.data() as Map<String, dynamic>;
-                  final isChannel = data['type'] == 'channel';
-                  final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
-                  
-                  tiles.add(_buildChatTile(
-                    context, 
-                    data['name'] ?? 'Tanpa Nama', 
-                    data['lastMessage'] ?? 'Belum ada pesan', 
-                    time, 
-                    isChannel ? 'https://cdn-icons-png.flaticon.com/512/2983/2983785.png' : 'https://i.pravatar.cc/150?img=${doc.id.hashCode % 70}', 
-                    doc.id, 
-                    isDark
-                  ));
+                  allRooms.add({
+                    'id': doc.id,
+                    'name': data['name'] ?? 'Tanpa Nama',
+                    'lastMessage': data['lastMessage'] ?? 'Belum ada pesan',
+                    'time': data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '',
+                    'avatar': data['type'] == 'channel' ? 'https://cdn-icons-png.flaticon.com/512/2983/2983785.png' : 'https://i.pravatar.cc/150?img=${doc.id.hashCode % 70}',
+                    'type': data['type'],
+                    'lastMessageTime': data['lastMessageTime'] ?? Timestamp.now(),
+                  });
                 }
 
-                tiles.add(_buildAiTile(context, isDark));
+                // Urutkan: Pin paling atas, lalu berdasarkan waktu
+                allRooms.sort((a, b) {
+                  final aPinned = _pinnedRooms.contains(a['id']);
+                  final bPinned = _pinnedRooms.contains(b['id']);
+                  if (aPinned && !bPinned) return -1;
+                  if (!aPinned && bPinned) return 1;
+                  return (b['lastMessageTime'] as Timestamp).compareTo(a['lastMessageTime'] as Timestamp);
+                });
+
+                List<Widget> tiles = allRooms.map((room) {
+                  final isPinned = _pinnedRooms.contains(room['id']);
+                  return ListTile(
+                    leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(room['avatar'])),
+                    title: Text(room['name'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                    subtitle: Row(
+                      children: [
+                        if (isPinned) ...[
+                          const Icon(Icons.push_pin, size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(child: Text(room['lastMessage'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54))),
+                      ],
+                    ),
+                    trailing: Text(room['time'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    onLongPress: () => _togglePin(room['id']),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: room['id'], roomName: room['name']))),
+                  );
+                }).toList();
+
+                tiles.add(ListTile(
+                  leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.smart_toy, color: Colors.white)),
+                  title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text('Tanya apa saja ke AI', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
+                ));
 
                 return ListView(children: tiles);
               },
@@ -132,25 +197,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
         backgroundColor: const Color(0xFF25D366),
         child: const Icon(Icons.add_comment, color: Colors.white),
       ),
-    );
-  }
-
-  Widget _buildChatTile(BuildContext context, String title, String subtitle, String time, String avatarUrl, String roomId, bool isDark) {
-    return ListTile(
-      leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(avatarUrl)),
-      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-      trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: title))),
-    );
-  }
-
-  Widget _buildAiTile(BuildContext context, bool isDark) {
-    return ListTile(
-      leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.smart_toy, color: Colors.white)),
-      title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-      subtitle: Text('Tanya apa saja ke AI', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
     );
   }
 }

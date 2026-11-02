@@ -10,6 +10,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'call_screen.dart';
+import 'contact_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -27,12 +28,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isRecording = false;
   String? _wallpaperPath;
   
-  // State untuk balas pesan & grup/channel
   Map<String, dynamic>? _replyingTo;
   bool _isAdmin = false;
   String _roomType = "group";
-
-  // State untuk pencarian
   bool _isSearching = false;
   String _searchQuery = "";
 
@@ -173,6 +171,18 @@ class _ChatScreenState extends State<ChatScreen> {
         .delete();
   }
 
+  Future<void> _clearChat() async {
+    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').get();
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Riwayat chat dibersihkan.')));
+    }
+  }
+
   void _showMessageOptions(DocumentSnapshot doc, Map<String, dynamic> data, bool isMe) {
     showModalBottomSheet(
       context: context,
@@ -236,22 +246,30 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
         foregroundColor: Colors.white,
-        title: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.roomName, style: const TextStyle(fontSize: 18)),
-                if (_roomType == 'group' || _roomType == 'channel')
-                  Text('${_roomType == 'group' ? 'Grup' : 'Saluran'}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
-              ],
-            ),
-          ],
+        title: InkWell(
+          onTap: () {
+            // Buka Info Kontak (Hanya untuk chat pribadi, bukan grup/global)
+            if (widget.roomId != 'global' && _roomType != 'group' && _roomType != 'channel') {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: widget.roomId, fallbackName: widget.roomName)));
+            }
+          },
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: Colors.white24,
+                child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.roomName, style: const TextStyle(fontSize: 18)),
+                  if (_roomType == 'group' || _roomType == 'channel')
+                    Text('${_roomType == 'group' ? 'Grup' : 'Saluran'}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                ],
+              ),
+            ],
+          ),
         ),
         actions: [
           IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () {
@@ -263,9 +281,14 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(icon: const Icon(Icons.videocam), onPressed: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)));
           }),
-          IconButton(icon: const Icon(Icons.call), onPressed: () {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)));
-          }),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'clear') _clearChat();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat')),
+            ],
+          ),
         ],
       ),
       body: Container(
@@ -301,7 +324,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                   
-                  // Logika Pencarian Pesan
                   final docs = snapshot.data!.docs.where((doc) {
                     if (_searchQuery.isEmpty) return true;
                     final data = doc.data() as Map<String, dynamic>;
@@ -413,7 +435,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             
-            // BAGIAN INPUT PESAN
             if (_roomType == 'channel' && !_isAdmin)
               Container(
                 width: double.infinity,

@@ -56,6 +56,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showFontPicker() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Pilih Font Aplikasi"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) {
+              return RadioListTile<String>(
+                title: Text(font),
+                value: font,
+                groupValue: fontNotifier.value,
+                onChanged: (val) async {
+                  if (val != null) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('app_font', val);
+                    fontNotifier.value = val;
+                    if (context.mounted) Navigator.pop(context);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -79,6 +108,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               await prefs.setBool('darkMode', value);
               themeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.font_download),
+            title: const Text('Ganti Font'),
+            subtitle: Text('Font saat ini: ${fontNotifier.value}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showFontPicker,
           ),
           ListTile(
             leading: const Icon(Icons.wallpaper),

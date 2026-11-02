@@ -32,6 +32,10 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAdmin = false;
   String _roomType = "group";
 
+  // State untuk pencarian
+  bool _isSearching = false;
+  String _searchQuery = "";
+
   @override
   void initState() {
     super.initState();
@@ -77,7 +81,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'reactions': {},
     });
 
-    // Update last message di room
     if (widget.roomId != 'global') {
       FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
         'lastMessage': text,
@@ -251,6 +254,12 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () {
+            setState(() {
+              _isSearching = !_isSearching;
+              if (!_isSearching) _searchQuery = "";
+            });
+          }),
           IconButton(icon: const Icon(Icons.videocam), onPressed: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)));
           }),
@@ -268,14 +277,39 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         child: Column(
           children: [
+            if (_isSearching)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: isDark ? const Color(0xFF202C33) : Colors.white,
+                child: TextField(
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: InputDecoration(
+                    hintText: 'Cari pesan...',
+                    hintStyle: TextStyle(color: isDark ? Colors.grey : Colors.black54),
+                    border: InputBorder.none,
+                    filled: true,
+                    fillColor: isDark ? Colors.black26 : Colors.grey[200],
+                    prefixIcon: const Icon(Icons.search),
+                  ),
+                  onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
+                ),
+              ),
             if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                  final docs = snapshot.data!.docs;
-                  if (docs.isEmpty) return const Center(child: Text('Belum ada pesan.'));
+                  
+                  // Logika Pencarian Pesan
+                  final docs = snapshot.data!.docs.where((doc) {
+                    if (_searchQuery.isEmpty) return true;
+                    final data = doc.data() as Map<String, dynamic>;
+                    final text = data['text']?.toString().toLowerCase() ?? '';
+                    return text.contains(_searchQuery);
+                  }).toList();
+
+                  if (docs.isEmpty) return const Center(child: Text('Pesan tidak ditemukan.'));
 
                   return ListView.builder(
                     reverse: true,

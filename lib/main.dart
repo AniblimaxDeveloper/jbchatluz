@@ -14,9 +14,23 @@ final ValueNotifier<String> fontNotifier = ValueNotifier("Default");
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  await NotificationService.initialize();
+  
+  // 1. Inisialisasi Firebase dengan aman
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Firebase Error: $e")))));
+    return;
+  }
 
+  // 2. Inisialisasi Notifikasi dengan aman (Agar tidak nge-hang)
+  try {
+    await NotificationService.initialize();
+  } catch (e) {
+    debugPrint("Notifikasi gagal dimuat: $e");
+  }
+
+  // 3. Load Pengaturan
   final prefs = await SharedPreferences.getInstance();
   final isDark = prefs.getBool('darkMode') ?? false;
   themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
@@ -57,27 +71,36 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
     if (user == null) return;
 
     if (state == AppLifecycleState.resumed) {
-      // Aplikasi dibuka: Set Online
       FirebaseFirestore.instance.collection('users').doc(user.uid).update({
         'isOnline': true,
         'lastSeen': FieldValue.serverTimestamp(),
-      });
+      }).catchError((e) => debugPrint("Gagal update online: $e"));
     } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // Aplikasi ditutup: Set Offline
       FirebaseFirestore.instance.collection('users').doc(user.uid).update({
         'isOnline': false,
         'lastSeen': FieldValue.serverTimestamp(),
-      });
+      }).catchError((e) => debugPrint("Gagal update offline: $e"));
     }
   }
 
   void _checkAppLock() async {
-    final prefs = await SharedPreferences.getInstance();
-    final pin = prefs.getString('app_pin') ?? "";
-    setState(() {
-      _isLocked = pin.isNotEmpty;
-      _isCheckingLock = false;
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pin = prefs.getString('app_pin') ?? "";
+      if (mounted) {
+        setState(() {
+          _isLocked = pin.isNotEmpty;
+          _isCheckingLock = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLocked = false;
+          _isCheckingLock = false;
+        });
+      }
+    }
   }
 
   TextTheme _getTextTheme(String fontName) {

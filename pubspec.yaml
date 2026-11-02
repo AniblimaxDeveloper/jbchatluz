@@ -22,6 +22,7 @@ dependencies:
   path_provider: ^2.1.4
   permission_handler: ^11.3.1
   agora_rtc_engine: ^6.3.2
+  http: ^1.2.1
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

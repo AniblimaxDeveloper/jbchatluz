@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../main.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'settings_screen.dart';
+import 'status_screen.dart';
+import 'ai_screen.dart';
 
 class ChatListScreen extends StatelessWidget {
   const ChatListScreen({super.key});
@@ -11,18 +14,16 @@ class ChatListScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF075E54),
+        backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
         title: const Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt),
-            onPressed: () {},
-          ),
+          IconButton(icon: const Icon(Icons.camera_alt), onPressed: () {}),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'settings') {
@@ -45,57 +46,25 @@ class ChatListScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          // Search Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: Colors.white,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: const TextField(
-                decoration: InputDecoration(
-                  hintText: 'Tanya Meta AI atau cari chat',
-                  prefixIcon: Icon(Icons.search, color: Colors.grey),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
+          // Tombol Status (Story)
+          ListTile(
+            leading: const CircleAvatar(
+              backgroundColor: Color(0xFF00A884),
+              child: Icon(Icons.add, color: Colors.white),
             ),
+            title: Text('Status Saya', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+            subtitle: Text('Ketuk untuk menambah pembaruan status', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatusScreen())),
           ),
           const Divider(height: 1),
-          // Chat List
+          
+          // Daftar Chat
           Expanded(
             child: ListView(
               children: [
-                _buildChatTile(
-                  context, 
-                  'Ruang Global', 
-                  'Halo semuanya, ada yang online?', 
-                  '14:30', 
-                  'https://i.pravatar.cc/150?img=11', 
-                  'global', 
-                  2
-                ),
-                _buildChatTile(
-                  context, 
-                  'Ruang Teknologi', 
-                  'Diskusi seputar IT', 
-                  'Kemarin', 
-                  'https://i.pravatar.cc/150?img=33', 
-                  'tech', 
-                  0
-                ),
-                _buildChatTile(
-                  context, 
-                  'Meta AI', 
-                  'Halo! Saya asisten AI Anda.', 
-                  'Senin', 
-                  'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Meta_Platforms_Inc._logo.svg/1200px-Meta_Platforms_Inc._logo.svg.png', 
-                  'ai', 
-                  0
-                ),
+                _buildChatTile(context, 'Ruang Global', 'Ngobrol dengan semua orang', '14:30', 'https://i.pravatar.cc/150?img=11', 'global', 2, isDark),
+                _buildChatTile(context, 'Ruang Teknologi', 'Diskusi seputar IT', 'Kemarin', 'https://i.pravatar.cc/150?img=33', 'tech', 0, isDark),
+                _buildAiTile(context, isDark),
               ],
             ),
           ),
@@ -109,33 +78,26 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildChatTile(BuildContext context, String title, String subtitle, String time, String avatarUrl, String roomId, int unreadCount) {
+  Widget _buildChatTile(BuildContext context, String title, String subtitle, String time, String avatarUrl, String roomId, int unreadCount, bool isDark) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: CircleAvatar(
-        radius: 26,
-        backgroundImage: NetworkImage(avatarUrl),
-        backgroundColor: Colors.grey[300],
+      leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(avatarUrl)),
+      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+      subtitle: Text(subtitle, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+      trailing: Text(time, style: TextStyle(color: isDark ? Colors.grey : Colors.grey, fontSize: 12)),
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: title))),
+    );
+  }
+
+  Widget _buildAiTile(BuildContext context, bool isDark) {
+    return ListTile(
+      leading: const CircleAvatar(
+        backgroundColor: Colors.purple,
+        child: Icon(Icons.smart_toy, color: Colors.white),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey[600])),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(time, style: TextStyle(color: unreadCount > 0 ? const Color(0xFF25D366) : Colors.grey, fontSize: 12)),
-          const SizedBox(height: 6),
-          if (unreadCount > 0)
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(color: Color(0xFF25D366), shape: BoxShape.circle),
-              child: Text(unreadCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-            ),
-        ],
-      ),
-      onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: title)));
-      },
+      title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+      subtitle: Text('Tanya apa saja ke AI', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
     );
   }
 }

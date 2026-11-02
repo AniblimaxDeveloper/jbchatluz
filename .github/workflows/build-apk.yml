@@ -49,7 +49,6 @@ jobs:
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
-          # Izin Dasar & Panggilan
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
@@ -67,7 +66,8 @@ jobs:
           if [ -f assets/icon.png ]; then
             dart run flutter_launcher_icons
           fi
-          flutter build apk --release
+          # Menyuntikkan API Key Gemini dari GitHub Secrets
+          flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
 
       - uses: actions/upload-artifact@v4
         with:

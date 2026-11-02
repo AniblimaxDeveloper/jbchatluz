@@ -17,13 +17,11 @@ class _AddContactScreenState extends State<AddContactScreen> {
   Future<void> _searchAndChat() async {
     final searchId = _idController.text.trim();
     if (searchId.isEmpty) return;
-    if (searchId == FirebaseAuth.instance.currentUser?.uid) return;
-
+    
     setState(() => _isLoading = true);
     try {
       final myUid = FirebaseAuth.instance.currentUser!.uid;
       
-      // Cari user berdasarkan JBId
       final userQuery = await FirebaseFirestore.instance.collection('users').where('jbId', isEqualTo: searchId).get();
       
       if (userQuery.docs.isEmpty) {
@@ -85,19 +83,12 @@ class _AddContactScreenState extends State<AddContactScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const Text(
-              'Masukkan 9 Digit ID JBchatluz teman Anda untuk memulai obrolan.',
-              style: TextStyle(color: Colors.grey),
-            ),
+            const Text('Masukkan 9 Digit ID JBchatluz teman Anda untuk memulai obrolan.', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             TextField(
               controller: _idController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'JBchatluz ID',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.numbers),
-              ),
+              decoration: const InputDecoration(labelText: 'JBchatluz ID', border: OutlineInputBorder(), prefixIcon: Icon(Icons.numbers)),
             ),
             const SizedBox(height: 16),
             SizedBox(

@@ -16,11 +16,10 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   bool _isUploading = false;
-  String _jbId = "";
+  String _jbId = "Memuat...";
   String _email = "";
   String? _photoUrl;
   
-  // MOD State
   bool _hideBlueTick = false;
   bool _hideOnlineStatus = false;
 
@@ -40,7 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final data = doc.data()!;
       setState(() {
         _nameController.text = data['displayName'] ?? '';
-        _jbId = data['jbId'] ?? 'Memuat...';
+        _jbId = data['jbId'] ?? 'Error';
         _email = data['email'] ?? '';
         _photoUrl = data['photoURL'];
       });
@@ -59,7 +58,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
     
-    // Jika menyembunyikan online, update ke Firestore
     if (key == 'mod_hide_online') {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
@@ -141,8 +139,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          
-          // Info Profil
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
@@ -171,8 +167,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             subtitle: Text(_email, style: const TextStyle(color: Colors.grey)),
           ),
           const Divider(),
-          
-          // Fitur MOD
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text('MOD Privasi', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),

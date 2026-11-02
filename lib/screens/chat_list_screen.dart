@@ -45,14 +45,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group')));
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.campaign, color: Colors.orange),
-                title: const Text('Channel Baru'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'channel')));
-                },
-              ),
             ],
           ),
         );
@@ -68,7 +60,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
-        title: Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: isDark ? Colors.white : Colors.white)),
+        title: Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
         actions: [
           IconButton(icon: const Icon(Icons.camera_alt, color: Colors.white), onPressed: () {}),
           PopupMenuButton<String>(
@@ -88,114 +80,80 @@ class _ChatListScreenState extends State<ChatListScreen> {
       ),
       body: Column(
         children: [
-          // Fitur Status Saya
           ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: Color(0xFF00A884), 
-              child: Icon(Icons.add, color: Colors.white)
-            ),
+            leading: const CircleAvatar(backgroundColor: Color(0xFF00A884), child: Icon(Icons.add, color: Colors.white)),
             title: Text('Status Saya', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-            subtitle: Text('Ketuk untuk menambah pembaruan status', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatusScreen())),
           ),
           const Divider(height: 1),
-          
-          // Daftar Chat
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('rooms').snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error memuat data: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
-                }
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
-                }
+                if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
 
-                // Ambil semua room, filter di memori agar tidak butuh index Firestore
                 final allRooms = snapshot.data!.docs.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid));
                 }).toList();
 
-                // Urutkan berdasarkan waktu terakhir
                 allRooms.sort((a, b) {
-                  final aData = a.data() as Map<String, dynamic>;
-                  final bData = b.data() as Map<String, dynamic>;
-                  Timestamp aTime = aData['lastMessageTime'] ?? Timestamp.now();
-                  Timestamp bTime = bData['lastMessageTime'] ?? Timestamp.now();
+                  Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now();
+                  Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now();
                   return bTime.compareTo(aTime);
                 });
 
                 List<Widget> tiles = [
-                  // Room Global (Hardcoded)
                   ListTile(
                     leading: const CircleAvatar(radius: 26, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11')),
                     title: Text('Ruang Global', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                    subtitle: Text('Ngobrol dengan semua orang', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-                    trailing: const Text('Sekarang', style: TextStyle(color: Colors.grey, fontSize: 12)),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen(roomId: 'global', roomName: 'Ruang Global'))),
                   ),
                 ];
 
-                // Tambahkan Room dari Database
                 for (var doc in allRooms) {
                   final data = doc.data() as Map<String, dynamic>;
-                  final roomId = doc.id;
                   final isPrivate = data['type'] == 'private';
                   final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
 
                   if (isPrivate) {
-                    // Untuk chat pribadi, cari UID lawan bicara
                     String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
-                    
                     tiles.add(FutureBuilder<DocumentSnapshot>(
                       future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
                       builder: (context, userSnap) {
                         String name = 'Pengguna';
                         String photoUrl = 'https://i.pravatar.cc/150?img=12';
-                        String status = data['lastMessage'] ?? 'Belum ada pesan';
-                        Color statusColor = isDark ? Colors.grey : Colors.black54;
+                        String status = data['lastMessage'] ?? '';
 
                         if (userSnap.hasData && userSnap.data!.exists) {
                           final uData = userSnap.data!.data() as Map<String, dynamic>;
                           name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
                           if (uData['photoURL'] != null && uData['photoURL'].toString().isNotEmpty) photoUrl = uData['photoURL'];
-                          
-                          if (uData['isOnline'] == true) {
-                            status = 'Online';
-                            statusColor = const Color(0xFF25D366);
-                          } else if (uData['lastSeen'] != null) {
-                            status = 'Terakhir dilihat ${DateFormat('HH:mm').format((uData['lastSeen'] as Timestamp).toDate())}';
-                          }
                         }
 
                         return ListTile(
                           leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(photoUrl)),
                           title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                          subtitle: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: statusColor)),
+                          subtitle: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
                           trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: name))),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name))),
                         );
                       },
                     ));
                   } else {
-                    // Untuk Grup / Channel
                     tiles.add(ListTile(
                       leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
                       title: Text(data['name'] ?? 'Grup', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                      subtitle: Text(data['lastMessage'] ?? 'Belum ada pesan', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
                       trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: data['name'] ?? 'Grup'))),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: data['name'] ?? 'Grup'))),
                     ));
                   }
                 }
 
-                // Tambahkan AI
                 tiles.add(ListTile(
                   leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.smart_toy, color: Colors.white)),
                   title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                  subtitle: Text('Tanya apa saja ke AI', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
                 ));
 

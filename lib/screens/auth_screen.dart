@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -17,11 +17,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _loading = false;
   bool _isLogin = true;
 
-  // GANTI DENGAN WEB CLIENT ID DARI FIREBASE ANDA
-  final String _webClientId = "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com";
+  final String _webClientId = "MASUKKAN_WEB_CLIENT_ID_ANDA_DISINI";
 
-  
-  
   String _generateJBId() {
     final random = Random();
     int id = random.nextInt(900000000) + 100000000; // 9 digit
@@ -32,7 +29,6 @@ class _AuthScreenState extends State<AuthScreen> {
     final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
     final docSnap = await docRef.get();
     
-    // Jika belum punya JBId, buatkan baru
     String jbId = docSnap.exists ? (docSnap.data()?['jbId'] ?? _generateJBId()) : _generateJBId();
 
     await docRef.set({
@@ -41,6 +37,8 @@ class _AuthScreenState extends State<AuthScreen> {
       'email': user.email,
       'photoURL': user.photoURL,
       'jbId': jbId,
+      'isOnline': true,
+      'lastSeen': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
@@ -70,9 +68,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _loading = true);
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        serverClientId: _webClientId, // Kunci perbaikan error 10
-      );
+      final GoogleSignIn googleSignIn = GoogleSignIn(serverClientId: _webClientId);
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       if (googleUser == null) return;
 
@@ -117,9 +113,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       onPressed: _loading ? null : _signInWithGoogle,
                       icon: const Icon(Icons.g_mobiledata, size: 32, color: Colors.red),
                       label: const Text('Masuk dengan Google', style: TextStyle(color: Colors.black87)),
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
+                      style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                     ),
                   ),
                   const Padding(
@@ -128,33 +122,20 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   TextField(
                     controller: _email,
-                    decoration: InputDecoration(
-                      labelText: 'Email',
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
+                    decoration: InputDecoration(labelText: 'Email', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _password,
                     obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                    ),
+                    decoration: InputDecoration(labelText: 'Password', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)),
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     height: 50,
                     child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF00A884),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF00A884), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                       onPressed: _loading ? null : _submitEmail,
                       child: _loading ? const CircularProgressIndicator(color: Colors.white) : Text(_isLogin ? 'Login' : 'Daftar'),
                     ),

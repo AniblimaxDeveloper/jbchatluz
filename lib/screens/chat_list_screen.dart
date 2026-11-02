@@ -9,6 +9,7 @@ import 'settings_screen.dart';
 import 'status_screen.dart';
 import 'ai_screen.dart';
 import 'create_group_screen.dart';
+import 'add_contact_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -28,6 +29,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.person_add, color: Colors.blue),
+                title: const Text('Tambah Kontak (via ID)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.group, color: Color(0xFF00A884)),
                 title: const Text('Grup Baru'),

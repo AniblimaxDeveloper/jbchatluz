@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,12 +21,26 @@ class _AuthScreenState extends State<AuthScreen> {
   final String _webClientId = "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com";
 
   
+  
+  String _generateJBId() {
+    final random = Random();
+    int id = random.nextInt(900000000) + 100000000; // 9 digit
+    return id.toString();
+  }
+
   Future<void> _saveUserToFirestore(User user) async {
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+    final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final docSnap = await docRef.get();
+    
+    // Jika belum punya JBId, buatkan baru
+    String jbId = docSnap.exists ? (docSnap.data()?['jbId'] ?? _generateJBId()) : _generateJBId();
+
+    await docRef.set({
       'uid': user.uid,
       'displayName': user.displayName ?? user.email?.split('@')[0] ?? 'User',
       'email': user.email,
       'photoURL': user.photoURL,
+      'jbId': jbId,
     }, SetOptions(merge: true));
   }
 

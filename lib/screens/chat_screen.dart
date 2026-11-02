@@ -87,6 +87,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _markMessagesAsRead() async {
     if (widget.roomId == 'global') return;
+    
+    // Cek MOD Sembunyikan Centang Biru
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('mod_hide_tick') ?? false) return; // Jangan tandai dibaca
+
     final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').where('senderId', isNotEqualTo: myUid).where('status', isEqualTo: 'sent').get();
     final batch = FirebaseFirestore.instance.batch();
     for (var doc in snapshot.docs) {

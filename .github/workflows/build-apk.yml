@@ -32,7 +32,6 @@ jobs:
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          # Perbaikan Kotlin & AGP
           if [ -f android/build.gradle ]; then
             sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
           fi
@@ -40,7 +39,6 @@ jobs:
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
           
-          # PERBAIKAN FATAL: Paksa minSdk 23 dan NDK 27
           sed -i '/minSdkVersion/d' android/app/build.gradle
           sed -i '/minSdk /d' android/app/build.gradle
           sed -i '/ndkVersion/d' android/app/build.gradle
@@ -48,14 +46,16 @@ jobs:
           sed -i '/defaultConfig {/a \        minSdkVersion 23\n        targetSdkVersion 36' android/app/build.gradle
           sed -i '/android {/a \    ndkVersion "27.0.12077973"\n    compileSdk 36' android/app/build.gradle
           
-          # Firebase Plugin & Izin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
+          # Izin Dasar & Panggilan
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json

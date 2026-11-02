@@ -1,3 +1,4 @@
+import "call_screen.dart";
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -123,8 +124,8 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.videocam), onPressed: () {}), // Tombol VC
-          IconButton(icon: const Icon(Icons.call), onPressed: () {}),     // Tombol Voice Call
+          IconButton(icon: const Icon(Icons.videocam), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true))); }),
+          IconButton(icon: const Icon(Icons.call), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false))); }),
           PopupMenuButton<String>(
             onSelected: (value) {},
             itemBuilder: (context) => [

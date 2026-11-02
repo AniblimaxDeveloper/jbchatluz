@@ -24,7 +24,7 @@ jobs:
 
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
 
-      - name: Align Kotlin, Gradle, NDK, and minSdk
+      - name: Align Kotlin, Gradle, NDK, and Permissions
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
@@ -55,6 +55,8 @@ jobs:
           sed -i '/<application/i \    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>' android/app/src/main/AndroidManifest.xml
+          # Izin Notifikasi Android 13+
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
@@ -66,7 +68,6 @@ jobs:
           if [ -f assets/icon.png ]; then
             dart run flutter_launcher_icons
           fi
-          # Menyuntikkan API Key Gemini dari GitHub Secrets
           flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
 
       - uses: actions/upload-artifact@v4

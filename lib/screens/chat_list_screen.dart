@@ -19,18 +19,23 @@ class ChatListScreen extends StatefulWidget {
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
+  int _currentIndex = 0;
+  String _activeFilter = 'Semua';
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+  final TextEditingController _searchController = TextEditingController();
 
-  void _showCreateMenu() {
+  void _showNewChatMenu() {
     showModalBottomSheet(
       context: context,
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Padding(padding: EdgeInsets.all(16), child: Text('Pilih opsi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
               ListTile(
-                leading: const Icon(Icons.person_add, color: Colors.blue),
+                leading: const Icon(Icons.person_add),
                 title: const Text('Tambah Kontak (via ID)'),
                 onTap: () {
                   Navigator.pop(context);
@@ -38,11 +43,86 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.group, color: Color(0xFF00A884)),
-                title: const Text('Grup Baru'),
+                leading: const Icon(Icons.group),
+                title: const Text('Grup baru'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.campaign),
+                title: const Text('Komunitas baru'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.cell_tower),
+                title: const Text('Daftar siaran'),
+                onTap: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPopupMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.group),
+                title: const Text('Grup baru'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.people),
+                title: const Text('Komunitas baru'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.cell_tower),
+                title: const Text('Daftar siaran'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.devices),
+                title: const Text('Perangkat tertaut'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.star),
+                title: const Text('Berbintang'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.done_all),
+                title: const Text('Baca semua'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Pengaturan'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: const Text('Alihkan akun'),
+                onTap: () {
+                  Navigator.pop(context);
+                  FirebaseAuth.instance.signOut();
                 },
               ),
             ],
@@ -60,122 +140,185 @@ class _ChatListScreenState extends State<ChatListScreen> {
       backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
-        title: const Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+        title: Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
         actions: [
           IconButton(icon: const Icon(Icons.camera_alt, color: Colors.white), onPressed: () {}),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (value) {
-              if (value == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              if (value == 'profile') Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-              if (value == 'logout') FirebaseAuth.instance.signOut();
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'profile', child: Text('Profil Saya')),
-              const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
-              const PopupMenuItem(value: 'logout', child: Text('Keluar')),
-            ],
-          ),
+          IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: _showPopupMenu),
         ],
       ),
-      body: Column(
+      body: IndexedStack(
+        index: _currentIndex,
         children: [
-          ListTile(
-            leading: const CircleAvatar(backgroundColor: Color(0xFF00A884), child: Icon(Icons.add, color: Colors.white)),
-            title: Text('Status Saya', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatusScreen())),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('rooms').snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
+          _buildChatsTab(isDark),
+          const StatusScreen(),
+          _buildPlaceholderTab('Komunitas', isDark),
+          _buildPlaceholderTab('Panggilan', isDark),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white,
+        selectedItemColor: isDark ? const Color(0xFF25D366) : const Color(0xFF075E54),
+        unselectedItemColor: Colors.grey,
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
+          BottomNavigationBarItem(icon: Icon(Icons.circle_notifications), label: 'Pembaruan'),
+          BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Komunitas'),
+          BottomNavigationBarItem(icon: Icon(Icons.call), label: 'Panggilan'),
+        ],
+      ),
+      floatingActionButton: _currentIndex == 0 
+          ? FloatingActionButton(
+              onPressed: _showNewChatMenu,
+              backgroundColor: const Color(0xFF25D366),
+              child: const Icon(Icons.add_comment, color: Colors.white),
+            )
+          : null,
+    );
+  }
 
-                final allRooms = snapshot.data!.docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid));
-                }).toList();
+  Widget _buildPlaceholderTab(String title, bool isDark) {
+    return Center(child: Text('Halaman $title segera hadir', style: TextStyle(color: isDark ? Colors.white : Colors.black)));
+  }
 
-                allRooms.sort((a, b) {
-                  Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now();
-                  Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now();
-                  return bTime.compareTo(aTime);
-                });
-
-                List<Widget> tiles = [
-                  ListTile(
-                    leading: const CircleAvatar(radius: 26, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11')),
-                    title: Text('Ruang Global', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen(roomId: 'global', roomName: 'Ruang Global'))),
-                  ),
-                ];
-
-                for (var doc in allRooms) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  final isPrivate = data['type'] == 'private';
-                  final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
-
-                  if (isPrivate) {
-                    String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
-                    tiles.add(FutureBuilder<DocumentSnapshot>(
-                      future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
-                      builder: (context, userSnap) {
-                        String name = 'Pengguna';
-                        String status = data['lastMessage'] ?? '';
-                        ImageProvider? avatarImage;
-
-                        if (userSnap.hasData && userSnap.data!.exists) {
-                          final uData = userSnap.data!.data() as Map<String, dynamic>;
-                          name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
-                          
-                          if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) {
-                            avatarImage = MemoryImage(base64Decode(uData['photoBase64']));
-                          } else if (uData['photoURL'] != null && uData['photoURL'].toString().isNotEmpty) {
-                            avatarImage = NetworkImage(uData['photoURL']);
-                          }
-                        }
-
-                        return ListTile(
-                          leading: CircleAvatar(
-                            radius: 26, 
-                            backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')
-                          ),
-                          title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                          subtitle: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-                          trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name))),
-                        );
-                      },
-                    ));
-                  } else {
-                    tiles.add(ListTile(
-                      leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
-                      title: Text(data['name'] ?? 'Grup', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                      trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: data['name'] ?? 'Grup'))),
-                    ));
-                  }
-                }
-
-                tiles.add(ListTile(
-                  leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.smart_toy, color: Colors.white)),
-                  title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
-                ));
-
-                return ListView(children: tiles);
-              },
+  Widget _buildChatsTab(bool isDark) {
+    return Column(
+      children: [
+        // Search Bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Container(
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.grey[200], borderRadius: BorderRadius.circular(30)),
+            child: TextField(
+              controller: _searchController,
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                hintText: 'Tanya Meta AI atau cari',
+                hintStyle: TextStyle(color: isDark ? Colors.grey : Colors.grey[600]),
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
             ),
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateMenu,
-        backgroundColor: const Color(0xFF25D366),
-        child: const Icon(Icons.add_comment, color: Colors.white),
-      ),
+        ),
+
+        // Filter Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: ['Semua', 'Belum dibaca', 'Favorit', 'Grup'].map((filter) {
+              final isSelected = _activeFilter == filter;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(filter),
+                  selected: isSelected,
+                  selectedColor: isDark ? const Color(0xFF005C4B) : const Color(0xFFD9FDD3),
+                  labelStyle: TextStyle(color: isSelected ? (isDark ? Colors.white : const Color(0xFF075E54)) : Colors.grey),
+                  backgroundColor: isDark ? const Color(0xFF202C33) : Colors.grey[100],
+                  onSelected: (val) => setState(() => _activeFilter = filter),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Folder (Locked / Archived)
+        ListTile(
+          leading: const Icon(Icons.lock, color: Colors.grey),
+          title: Text('Chat Terkunci', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+          onTap: () {},
+        ),
+        ListTile(
+          leading: const Icon(Icons.archive, color: Colors.grey),
+          title: Text('Diarsipkan', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+          onTap: () {},
+        ),
+        const Divider(height: 1),
+
+        // List Chat
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('rooms').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
+              
+              final allRooms = snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid));
+              }).toList();
+
+              allRooms.sort((a, b) {
+                Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now();
+                Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now();
+                return bTime.compareTo(aTime);
+              });
+
+              List<Widget> tiles = [];
+              for (var doc in allRooms) {
+                final data = doc.data() as Map<String, dynamic>;
+                final isPrivate = data['type'] == 'private';
+                final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
+
+                if (isPrivate) {
+                  String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
+                  tiles.add(FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
+                    builder: (context, userSnap) {
+                      String name = 'Pengguna';
+                      String status = data['lastMessage'] ?? '';
+                      ImageProvider? avatarImage;
+
+                      if (userSnap.hasData && userSnap.data!.exists) {
+                        final uData = userSnap.data!.data() as Map<String, dynamic>;
+                        name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
+                        
+                        // Tampilkan Foto Profil dari Base64 atau URL
+                        if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) {
+                          avatarImage = MemoryImage(base64Decode(uData['photoBase64']));
+                        } else if (uData['photoURL'] != null && uData['photoURL'].toString().isNotEmpty) {
+                          avatarImage = NetworkImage(uData['photoURL']);
+                        }
+                      }
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          radius: 26, 
+                          backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')
+                        ),
+                        title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                        subtitle: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+                        trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name))),
+                      );
+                    },
+                  ));
+                } else {
+                  tiles.add(ListTile(
+                    leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
+                    title: Text(data['name'] ?? 'Grup', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                    trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: data['name'] ?? 'Grup'))),
+                  ));
+                }
+              }
+
+              tiles.add(ListTile(
+                leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.smart_toy, color: Colors.white)),
+                title: Text('Gemini AI', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AiScreen())),
+              ));
+
+              return ListView(children: tiles);
+            },
+          ),
+        ),
+      ],
     );
   }
 }

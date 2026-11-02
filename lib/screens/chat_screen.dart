@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -33,6 +34,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String _roomType = "group";
   bool _isSearching = false;
   String _searchQuery = "";
+  bool _isOtherTyping = false;
+  bool _isMeTyping = false;
+  Timer? _typingTimer;
 
   // State Disappearing Messages (dalam milidetik)
   int _disappearingDuration = 0; 
@@ -42,6 +46,51 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadWallpaper();
     _loadRoomInfo();
+    _listenToTyping();
+    _markMessagesAsRead();
+  }
+
+  void _listenToTyping() {
+    if (widget.roomId == 'global') return;
+    FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).snapshots().listen((snap) {
+      if (snap.exists) {
+        final data = snap.data()!;
+        final myUid = FirebaseAuth.instance.currentUser?.uid;
+        final typingUsers = data['typing'] as Map<String, dynamic>? ?? {};
+        bool otherTyping = false;
+        typingUsers.forEach((key, value) {
+          if (key != myUid && value == true) otherTyping = true;
+        });
+        if (mounted) setState(() => _isOtherTyping = otherTyping);
+      }
+    });
+  }
+
+  void _onTextChanged(String text) {
+    if (widget.roomId == 'global') return;
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    if (myUid == null) return;
+
+      _isMeTyping = true;
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.': true});
+    }
+
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      _isMeTyping = false;
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.': false});
+    });
+  }
+
+  void _markMessagesAsRead() async {
+    if (widget.roomId == 'global') return;
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').where('senderId', isNotEqualTo: myUid).where('status', isEqualTo: 'sent').get();
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in snapshot.docs) {
+      batch.update(doc.reference, {'status': 'read'});
+    }
+    await batch.commit();
   }
 
   Future<void> _loadRoomInfo() async {
@@ -100,6 +149,7 @@ class _ChatScreenState extends State<ChatScreen> {
       'timestamp': FieldValue.serverTimestamp(),
       'replyTo': replyData,
       'reactions': {},
+      'status': 'sent',
       'expiresAt': expiresAt,
     });
 
@@ -165,6 +215,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
         'timestamp': FieldValue.serverTimestamp(),
         'reactions': {},
+      'status': 'sent',
         'expiresAt': expiresAt,
       });
 
@@ -293,7 +344,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(widget.roomName, style: const TextStyle(fontSize: 18)),
-                  if (_disappearingDuration > 0)
+                  if (_isOtherTyping)
+                    const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                  else if (_disappearingDuration > 0)
                     const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70)),
                 ],
               ),
@@ -480,7 +533,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                     Text(timestamp, style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                     if (isMe) ...[
                                       const SizedBox(width: 4),
-                                      const Icon(Icons.done_all, size: 16, color: Colors.blue), 
+                                      Icon(
+                                        Icons.done_all, 
+                                        size: 16, 
+                                        color: data['status'] == 'read' ? Colors.blue : Colors.grey,
+                                      ),
                                     ]
                                   ],
                                 ),
@@ -557,6 +614,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     controller: _msgController,
                                     style: TextStyle(color: isDark ? Colors.white : Colors.black),
                                     decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
+                                    onChanged: _onTextChanged,
                                   ),
                                 ),
                                 IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery)),

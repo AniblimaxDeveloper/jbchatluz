@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'screens/auth_screen.dart';
@@ -14,7 +15,6 @@ final ValueNotifier<String> fontNotifier = ValueNotifier("Default");
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  
   await NotificationService.initialize();
 
   final prefs = await SharedPreferences.getInstance();
@@ -34,14 +34,41 @@ class JBChatLuzApp extends StatefulWidget {
   State<JBChatLuzApp> createState() => _JBChatLuzAppState();
 }
 
-class _JBChatLuzAppState extends State<JBChatLuzApp> {
+class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver {
   bool _isLocked = false;
   bool _isCheckingLock = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAppLock();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (state == AppLifecycleState.resumed) {
+      // Aplikasi dibuka: Set Online
+      FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'isOnline': true,
+        'lastSeen': FieldValue.serverTimestamp(),
+      });
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Aplikasi ditutup: Set Offline
+      FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'isOnline': false,
+        'lastSeen': FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   void _checkAppLock() async {

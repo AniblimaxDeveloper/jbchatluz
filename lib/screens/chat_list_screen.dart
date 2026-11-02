@@ -39,10 +39,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
     setState(() {
       if (_pinnedRooms.contains(roomId)) {
         _pinnedRooms.remove(roomId);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat dilepas dari sematan')));
       } else {
         _pinnedRooms.add(roomId);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chat disematkan')));
       }
     });
     await prefs.setStringList('pinned_rooms', _pinnedRooms);
@@ -126,7 +124,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 final rooms = snapshot.data!.docs;
                 
                 List<Map<String, dynamic>> allRooms = [];
-                // Tambahkan Room Global statis
                 allRooms.add({
                   'id': 'global',
                   'name': 'Ruang Global',
@@ -135,6 +132,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   'avatar': 'https://i.pravatar.cc/150?img=11',
                   'type': 'global',
                   'lastMessageTime': Timestamp.now(),
+                  'members': [],
                 });
 
                 for (var doc in rooms) {
@@ -147,10 +145,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     'avatar': data['type'] == 'channel' ? 'https://cdn-icons-png.flaticon.com/512/2983/2983785.png' : 'https://i.pravatar.cc/150?img=${doc.id.hashCode % 70}',
                     'type': data['type'],
                     'lastMessageTime': data['lastMessageTime'] ?? Timestamp.now(),
+                    'members': data['members'] ?? [],
                   });
                 }
 
-                // Urutkan: Pin paling atas, lalu berdasarkan waktu
                 allRooms.sort((a, b) {
                   final aPinned = _pinnedRooms.contains(a['id']);
                   final bPinned = _pinnedRooms.contains(b['id']);
@@ -161,21 +159,48 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                 List<Widget> tiles = allRooms.map((room) {
                   final isPinned = _pinnedRooms.contains(room['id']);
-                  return ListTile(
-                    leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(room['avatar'])),
-                    title: Text(room['name'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                    subtitle: Row(
-                      children: [
-                        if (isPinned) ...[
-                          const Icon(Icons.push_pin, size: 14, color: Colors.grey),
-                          const SizedBox(width: 4),
-                        ],
-                        Expanded(child: Text(room['lastMessage'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54))),
-                      ],
-                    ),
-                    trailing: Text(room['time'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    onLongPress: () => _togglePin(room['id']),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: room['id'], roomName: room['name']))),
+                  final isPrivate = room['type'] != 'group' && room['type'] != 'channel' && room['type'] != 'global';
+                  
+                  // Dapatkan UID lawan bicara untuk chat pribadi
+                  String otherUid = '';
+                  if (isPrivate && room['members'].isNotEmpty) {
+                    otherUid = (room['members'] as List).firstWhere((id) => id != user?.uid, orElse: () => '');
+                  }
+
+                  return StreamBuilder<DocumentSnapshot>(
+                    stream: otherUid.isNotEmpty ? FirebaseFirestore.instance.collection('users').doc(otherUid).snapshots() : null,
+                    builder: (context, userSnap) {
+                      String subtitle = room['lastMessage'];
+                      Color subtitleColor = isDark ? Colors.grey : Colors.black54;
+
+                      if (userSnap.hasData && userSnap.data!.exists) {
+                        final uData = userSnap.data!.data() as Map<String, dynamic>;
+                        if (uData['isOnline'] == true) {
+                          subtitle = 'Online';
+                          subtitleColor = const Color(0xFF25D366);
+                        } else if (uData['lastSeen'] != null) {
+                          final lastSeen = (uData['lastSeen'] as Timestamp).toDate();
+                          subtitle = 'Terakhir dilihat ${DateFormat('HH:mm').format(lastSeen)}';
+                        }
+                      }
+
+                      return ListTile(
+                        leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(room['avatar'])),
+                        title: Text(room['name'], style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                        subtitle: Row(
+                          children: [
+                            if (isPinned) ...[
+                              const Icon(Icons.push_pin, size: 14, color: Colors.grey),
+                              const SizedBox(width: 4),
+                            ],
+                            Expanded(child: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: subtitleColor))),
+                          ],
+                        ),
+                        trailing: Text(room['time'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        onLongPress: () => _togglePin(room['id']),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: room['id'], roomName: room['name']))),
+                      );
+                    }
                   );
                 }).toList();
 

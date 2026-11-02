@@ -39,13 +39,25 @@ jobs:
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
           
+          # 1. Konfigurasi minSdk, NDK, dan Compile SDK
           sed -i '/minSdkVersion/d' android/app/build.gradle
           sed -i '/minSdk /d' android/app/build.gradle
           sed -i '/ndkVersion/d' android/app/build.gradle
           
           sed -i '/defaultConfig {/a \        minSdkVersion 23\n        targetSdkVersion 36' android/app/build.gradle
           sed -i '/android {/a \    ndkVersion "27.0.12077973"\n    compileSdk 36' android/app/build.gradle
+
+          # 2. PERBAIKAN DESUGARING
+          # Menyisipkan compileOptions ke dalam blok android { }
+          sed -i '/android {/a \    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }' android/app/build.gradle
           
+          # Menambahkan dependensi desugar_jdk_libs di akhir file build.gradle
+          echo "" >> android/app/build.gradle
+          echo "dependencies {" >> android/app/build.gradle
+          echo "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'" >> android/app/build.gradle
+          echo "}" >> android/app/build.gradle
+          
+          # 3. Firebase Plugin & Izin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
@@ -55,7 +67,6 @@ jobs:
           sed -i '/<application/i \    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>' android/app/src/main/AndroidManifest.xml
-          # Izin Notifikasi Android 13+
           sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Copy Google Services File

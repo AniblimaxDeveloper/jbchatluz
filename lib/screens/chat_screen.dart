@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -25,6 +26,14 @@ class _ChatScreenState extends State<ChatScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
   bool _isTyping = false;
+  String? _wallpaperPath;
+
+  Future<void> _loadWallpaper() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _wallpaperPath = prefs.getString('wallpaper_path');
+    });
+  }
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
@@ -102,7 +111,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEFEAE2), // Background chat khas WhatsApp
+      backgroundColor: Colors.transparent, // Background chat khas WhatsApp
       appBar: AppBar(
         backgroundColor: const Color(0xFF075E54),
         foregroundColor: Colors.white,
@@ -135,7 +144,14 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFEAE2),
+          image: _wallpaperPath != null 
+              ? DecorationImage(image: FileImage(File(_wallpaperPath!)), fit: BoxFit.cover)
+              : null,
+        ),
+        child: Column(
         children: [
           if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
           Expanded(
@@ -270,6 +286,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

@@ -11,11 +11,11 @@ import 'notification_service.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 final ValueNotifier<String> fontNotifier = ValueNotifier("Default");
+final ValueNotifier<Color> bubbleColorNotifier = ValueNotifier(const Color(0xFFD9FDD3));
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // 1. Inisialisasi Firebase dengan aman
   try {
     await Firebase.initializeApp();
   } catch (e) {
@@ -23,20 +23,21 @@ void main() async {
     return;
   }
 
-  // 2. Inisialisasi Notifikasi dengan aman (Agar tidak nge-hang)
   try {
     await NotificationService.initialize();
   } catch (e) {
     debugPrint("Notifikasi gagal dimuat: $e");
   }
 
-  // 3. Load Pengaturan
   final prefs = await SharedPreferences.getInstance();
   final isDark = prefs.getBool('darkMode') ?? false;
   themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
   
   final savedFont = prefs.getString('app_font') ?? "Default";
   fontNotifier.value = savedFont;
+
+  final savedBubbleColor = prefs.getInt('bubble_color') ?? 0xFFD9FDD3;
+  bubbleColorNotifier.value = Color(savedBubbleColor);
 
   runApp(const JBChatLuzApp());
 }

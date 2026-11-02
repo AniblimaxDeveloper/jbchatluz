@@ -1,63 +1,46 @@
 name: Build APK
-
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21' 
-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.1'
           channel: 'stable'
-
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
-
-      - name: Align Kotlin, Gradle, NDK, and Permissions
+      - name: Align Config
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
-          echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          if [ -f android/build.gradle ]; then
-            sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
-          fi
+          sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
           sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "2.2.21"/' android/settings.gradle
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
           
-          # 1. Konfigurasi minSdk, NDK, dan Compile SDK
           sed -i '/minSdkVersion/d' android/app/build.gradle
           sed -i '/minSdk /d' android/app/build.gradle
           sed -i '/ndkVersion/d' android/app/build.gradle
-          
           sed -i '/defaultConfig {/a \        minSdkVersion 23\n        targetSdkVersion 36' android/app/build.gradle
           sed -i '/android {/a \    ndkVersion "27.0.12077973"\n    compileSdk 36' android/app/build.gradle
-
-          # 2. PERBAIKAN DESUGARING
-          # Menyisipkan compileOptions ke dalam blok android { }
-          sed -i '/android {/a \    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }' android/app/build.gradle
           
-          # Menambahkan dependensi desugar_jdk_libs di akhir file build.gradle
+          sed -i '/android {/a \    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }' android/app/build.gradle
           echo "" >> android/app/build.gradle
           echo "dependencies {" >> android/app/build.gradle
           echo "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'" >> android/app/build.gradle
           echo "}" >> android/app/build.gradle
           
-          # 3. Firebase Plugin & Izin
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
@@ -68,10 +51,8 @@ jobs:
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' android/app/src/main/AndroidManifest.xml
-
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
-
       - name: Clean and Build
         run: |
           flutter clean
@@ -79,8 +60,7 @@ jobs:
           if [ -f assets/icon.png ]; then
             dart run flutter_launcher_icons
           fi
-          flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-
+          flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: jbchatluz-apk

@@ -31,7 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('app_pin', pinController.text.trim());
               if (mounted) Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN berhasil diatur. Restart aplikasi untuk menguji.")));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN diatur. Restart aplikasi.")));
             },
             child: const Text("Simpan"),
           ),
@@ -52,7 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (image != null) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('wallpaper_path', image.path);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper berhasil diubah.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah.")));
     }
   }
 
@@ -61,7 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text("Pilih Font Aplikasi"),
+          title: const Text("Pilih Font"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) {
@@ -85,22 +85,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showBubbleColorPicker() {
+    final colors = [const Color(0xFFD9FDD3), const Color(0xFFD2E8FF), const Color(0xFFFFE4E1), const Color(0xFFF0E6FF)];
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Warna Bubble Chat"),
+          content: Wrap(
+            spacing: 10,
+            children: colors.map((color) {
+              return GestureDetector(
+                onTap: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setInt('bubble_color', color.value);
+                  bubbleColorNotifier.value = color;
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: Container(
+                  width: 50, height: 50,
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey)),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pengaturan MOD'),
-        backgroundColor: const Color(0xFF075E54),
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Pengaturan MOD'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
       body: ListView(
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.dark_mode),
-            title: const Text('Mode Gelap (Dark Mode)'),
-            subtitle: const Text('Ubah tema aplikasi secara keseluruhan'),
+            title: const Text('Mode Gelap'),
             value: isDark,
             activeColor: const Color(0xFF25D366),
             onChanged: (value) async {
@@ -110,30 +134,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.palette),
+            title: const Text('Warna Bubble Chat'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showBubbleColorPicker,
+          ),
+          ListTile(
             leading: const Icon(Icons.font_download),
             title: const Text('Ganti Font'),
-            subtitle: Text('Font saat ini: ${fontNotifier.value}'),
+            subtitle: Text('Font: ${fontNotifier.value}'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showFontPicker,
           ),
           ListTile(
             leading: const Icon(Icons.wallpaper),
             title: const Text('Wallpaper Chat'),
-            subtitle: const Text('Ganti latar belakang obrolan'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _pickWallpaper,
           ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.lock),
-            title: const Text('Kunci Aplikasi (App Lock)'),
-            subtitle: const Text('Amankan aplikasi dengan PIN rahasia'),
+            title: const Text('Kunci Aplikasi (PIN)'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _setPin,
           ),
           ListTile(
             leading: const Icon(Icons.lock_open, color: Colors.red),
-            title: const Text('Hapus PIN Aplikasi', style: TextStyle(color: Colors.red)),
+            title: const Text('Hapus PIN', style: TextStyle(color: Colors.red)),
             onTap: _removePin,
           ),
         ],

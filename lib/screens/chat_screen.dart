@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,7 +24,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   
-  // Profil Header
   String _otherName = "";
   String _otherPhoto = "";
   String _otherStatus = "";
@@ -39,10 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadReceiverProfile() async {
     if (widget.roomId == 'global') {
-      setState(() {
-        _otherName = widget.roomName;
-        _otherStatus = 'Ruang publik';
-      });
+      setState(() { _otherName = widget.roomName; _otherStatus = 'Ruang publik'; });
       return;
     }
 
@@ -59,23 +54,17 @@ class _ChatScreenState extends State<ChatScreen> {
               final data = userDoc.data()!;
               setState(() {
                 _otherName = data['displayName'] ?? data['email']?.split('@')[0] ?? widget.roomName;
-                _otherPhoto = data['photoBase64'] ?? data['photoURL'] ?? '';
-                if (data['isOnline'] == true) {
-                  _otherStatus = 'Online';
-                } else if (data['lastSeen'] != null) {
+                _otherPhoto = data['photoBase64'] ?? '';
+                if (data['isOnline'] == true) { _otherStatus = 'Online'; } 
+                else if (data['lastSeen'] != null) {
                   _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}';
-                } else {
-                  _otherStatus = 'Offline';
-                }
+                } else { _otherStatus = 'Offline'; }
               });
             }
           });
         }
       } else {
-        setState(() {
-          _otherName = roomDoc.data()!['name'] ?? widget.roomName;
-          _otherStatus = 'Grup';
-        });
+        setState(() { _otherName = roomDoc.data()!['name'] ?? widget.roomName; _otherStatus = 'Grup'; });
       }
     }
   }
@@ -140,13 +129,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    // Load Foto Profil Header
     ImageProvider? headerImage;
-    if (_otherPhoto.isNotEmpty) {
-      if (_otherPhoto.startsWith('http')) headerImage = NetworkImage(_otherPhoto);
-      else headerImage = MemoryImage(base64Decode(_otherPhoto));
-    }
+    if (_otherPhoto.isNotEmpty) headerImage = MemoryImage(base64Decode(_otherPhoto));
 
     return ValueListenableBuilder<Color>(
       valueListenable: bubbleColorNotifier,
@@ -154,15 +138,11 @@ class _ChatScreenState extends State<ChatScreen> {
         return Scaffold(
           backgroundColor: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
           appBar: AppBar(
-            backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
+            backgroundColor: isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54),
             foregroundColor: Colors.white,
             title: Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'),
-                  backgroundColor: Colors.grey[300],
-                ),
+                CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -170,13 +150,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     children: [
                       Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       if (_otherStatus.isNotEmpty)
-                        Text(
-                          _otherStatus, 
-                          style: TextStyle(
-                            fontSize: 12, 
-                            color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70,
-                          )
-                        ),
+                        Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
                     ],
                   ),
                 ),
@@ -201,7 +175,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     final docs = snapshot.data!.docs;
 
-                    // Pesan E2E
                     List<Widget> messageWidgets = [];
                     if (widget.roomId != 'global') {
                       messageWidgets.add(
@@ -226,9 +199,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
                       itemCount: docs.length + messageWidgets.length,
                       itemBuilder: (context, index) {
-                        if (index >= docs.length) {
-                          return messageWidgets[index - docs.length];
-                        }
+                        if (index >= docs.length) return messageWidgets[index - docs.length];
 
                         final data = docs[index].data() as Map<String, dynamic>;
                         final isMe = data['senderId'] == myUid;
@@ -240,9 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: isMe 
-                                  ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor)
-                                  : (isDark ? const Color(0xFF202C33) : Colors.white),
+                              color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
@@ -278,22 +247,44 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
+              
+              // BILAH INPUT CHAT (Persis Gambar 4)
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                color: Colors.transparent,
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
                       child: Container(
-                        decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(25)),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1F2C34) : Colors.white,
+                          borderRadius: BorderRadius.circular(25),
+                        ),
                         child: Row(
                           children: [
-                            IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _sendImage),
+                            IconButton(
+                              icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+                              onPressed: () {},
+                            ),
                             Expanded(
                               child: TextField(
                                 controller: _msgController,
                                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                                decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
+                                decoration: const InputDecoration(
+                                  hintText: 'Ketik pesan',
+                                  hintStyle: TextStyle(color: Colors.grey),
+                                  border: InputBorder.none,
+                                ),
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.attach_file, color: Colors.grey),
+                              onPressed: _isUploading ? null : _sendImage,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.camera_alt_outlined, color: Colors.grey),
+                              onPressed: () {},
                             ),
                           ],
                         ),
@@ -301,8 +292,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     const SizedBox(width: 8),
                     CircleAvatar(
-                      backgroundColor: const Color(0xFF00A884),
-                      radius: 26,
+                      backgroundColor: const Color(0xFF25D366),
+                      radius: 24,
                       child: IconButton(
                         icon: const Icon(Icons.send, color: Colors.white, size: 20),
                         onPressed: _isUploading ? null : _sendMessage,

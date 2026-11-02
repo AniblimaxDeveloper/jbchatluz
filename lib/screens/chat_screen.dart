@@ -25,6 +25,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
+  bool _isAdmin = false;
+  String _roomType = "group";
   String? _wallpaperPath;
   
   // State untuk balas pesan
@@ -34,6 +36,19 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadWallpaper();
+    _loadRoomInfo();
+  }
+
+  Future<void> _loadRoomInfo() async {
+    if (widget.roomId == 'global') return;
+    final doc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
+    if (doc.exists) {
+      final data = doc.data()!;
+      setState(() {
+        _roomType = data['type'] ?? 'group';
+        _isAdmin = (data['admins'] as List?)?.contains(FirebaseAuth.instance.currentUser?.uid) ?? false;
+      });
+    }
   }
 
   Future<void> _loadWallpaper() async {
@@ -345,6 +360,12 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             // Kolom Ketik
+              Container(
+                padding: const EdgeInsets.all(16),
+                color: isDark ? const Color(0xFF202C33) : Colors.grey[200],
+                child: Text('Hanya admin yang dapat mengirim pesan di channel ini', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)),
+              )
+            else
             Container(
               padding: const EdgeInsets.all(8),
               child: Column(

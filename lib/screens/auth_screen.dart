@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -18,19 +19,31 @@ class _AuthScreenState extends State<AuthScreen> {
   // GANTI DENGAN WEB CLIENT ID DARI FIREBASE ANDA
   final String _webClientId = "1084869510661-481bdd17nitclrj40t47r6v71t02ch0f.apps.googleusercontent.com";
 
+  
+  Future<void> _saveUserToFirestore(User user) async {
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      'uid': user.uid,
+      'displayName': user.displayName ?? user.email?.split('@')[0] ?? 'User',
+      'email': user.email,
+      'photoURL': user.photoURL,
+    }, SetOptions(merge: true));
+  }
+
   Future<void> _submitEmail() async {
     setState(() => _loading = true);
     try {
       if (_isLogin) {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _email.text.trim(),
           password: _password.text.trim(),
         );
+        if (cred.user != null) await _saveUserToFirestore(cred.user!);
       } else {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _email.text.trim(),
           password: _password.text.trim(),
         );
+        if (cred.user != null) await _saveUserToFirestore(cred.user!);
       }
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Error')));
@@ -54,7 +67,8 @@ class _AuthScreenState extends State<AuthScreen> {
         idToken: googleAuth.idToken,
       );
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final cred = await FirebaseAuth.instance.signInWithCredential(credential);
+      if (cred.user != null) await _saveUserToFirestore(cred.user!);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Google Error: $e')));
     } finally {

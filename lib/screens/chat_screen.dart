@@ -25,12 +25,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
-  bool _isAdmin = false;
-  String _roomType = "group";
   String? _wallpaperPath;
   
-  // State untuk balas pesan
+  // State untuk balas pesan & grup/channel
   Map<String, dynamic>? _replyingTo;
+  bool _isAdmin = false;
+  String _roomType = "group";
 
   @override
   void initState() {
@@ -76,6 +76,14 @@ class _ChatScreenState extends State<ChatScreen> {
       'replyTo': replyData,
       'reactions': {},
     });
+
+    // Update last message di room
+    if (widget.roomId != 'global') {
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
+        'lastMessage': text,
+        'lastMessageTime': FieldValue.serverTimestamp(),
+      });
+    }
   }
 
   void _pickMedia(ImageSource source) async {
@@ -128,6 +136,13 @@ class _ChatScreenState extends State<ChatScreen> {
         'timestamp': FieldValue.serverTimestamp(),
         'reactions': {},
       });
+
+      if (widget.roomId != 'global') {
+        FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
+          'lastMessage': type == 'image' ? '📷 Foto' : '🎤 Pesan Suara',
+          'lastMessageTime': FieldValue.serverTimestamp(),
+        });
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal upload: $e')));
     } finally {
@@ -163,7 +178,6 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Barisan Emoji Reaksi
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Row(
@@ -226,7 +240,14 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
             ),
             const SizedBox(width: 12),
-            Text(widget.roomName, style: const TextStyle(fontSize: 18)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.roomName, style: const TextStyle(fontSize: 18)),
+                if (_roomType == 'group' || _roomType == 'channel')
+                  Text('${_roomType == 'group' ? 'Grup' : 'Saluran'}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+              ],
+            ),
           ],
         ),
         actions: [
@@ -296,7 +317,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                     padding: const EdgeInsets.only(bottom: 4),
                                     child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF00A884))),
                                   ),
-                                // UI Balasan (Quote)
                                 if (replyTo != null)
                                   Container(
                                     padding: const EdgeInsets.all(8),
@@ -336,7 +356,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                     ]
                                   ],
                                 ),
-                                // UI Reaksi Emoji
                                 if (reactions.isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 6),
@@ -359,85 +378,91 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            // Kolom Ketik
+            
+            // BAGIAN INPUT PESAN
+            if (_roomType == 'channel' && !_isAdmin)
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 color: isDark ? const Color(0xFF202C33) : Colors.grey[200],
-                child: Text('Hanya admin yang dapat mengirim pesan di channel ini', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)),
+                child: Text(
+                  'Hanya admin yang dapat mengirim pesan di saluran ini',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic),
+                ),
               )
             else
-            Container(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                children: [
-                  // Preview Balasan
-                  if (_replyingTo != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(10)),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.reply, color: Color(0xFF00A884)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+              Container(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  children: [
+                    if (_replyingTo != null)
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(10)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.reply, color: Color(0xFF00A884)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(_replyingTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
+                                  Text(_replyingTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+                                ],
+                              ),
+                            ),
+                            IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyingTo = null)),
+                          ],
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(25)),
+                            child: Row(
                               children: [
-                                Text(_replyingTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
-                                Text(_replyingTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+                                IconButton(icon: const Icon(Icons.camera_alt, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera)),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _msgController,
+                                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                                    decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
+                                  ),
+                                ),
+                                IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery)),
                               ],
                             ),
                           ),
-                          IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyingTo = null)),
-                        ],
-                      ),
-                    ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(25)),
-                          child: Row(
-                            children: [
-                              IconButton(icon: const Icon(Icons.camera_alt, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera)),
-                              Expanded(
-                                child: TextField(
-                                  controller: _msgController,
-                                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                                  decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
-                                ),
-                              ),
-                              IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery)),
-                            ],
-                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onLongPressStart: (_) => _startRecording(),
-                        onLongPressEnd: (_) => _stopRecording(),
-                        child: CircleAvatar(
-                          backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
-                          radius: 26,
-                          child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white),
-                        ),
-                      ),
-                      if (!_isRecording) ...[
                         const SizedBox(width: 8),
-                        CircleAvatar(
-                          backgroundColor: const Color(0xFF00A884),
-                          radius: 26,
-                          child: IconButton(
-                            icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                            onPressed: _isUploading ? null : _sendMessage,
+                        GestureDetector(
+                          onLongPressStart: (_) => _startRecording(),
+                          onLongPressEnd: (_) => _stopRecording(),
+                          child: CircleAvatar(
+                            backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
+                            radius: 26,
+                            child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white),
                           ),
                         ),
-                      ]
-                    ],
-                  ),
-                ],
+                        if (!_isRecording) ...[
+                          const SizedBox(width: 8),
+                          CircleAvatar(
+                            backgroundColor: const Color(0xFF00A884),
+                            radius: 26,
+                            child: IconButton(
+                              icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                              onPressed: _isUploading ? null : _sendMessage,
+                            ),
+                          ),
+                        ]
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

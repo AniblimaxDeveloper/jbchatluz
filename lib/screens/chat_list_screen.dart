@@ -1,8 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import '../main.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'settings_screen.dart';
@@ -60,7 +60,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
-        title: Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
+        title: const Text('JBchatluz', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         actions: [
           IconButton(icon: const Icon(Icons.camera_alt, color: Colors.white), onPressed: () {}),
           PopupMenuButton<String>(
@@ -123,17 +123,25 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
                       builder: (context, userSnap) {
                         String name = 'Pengguna';
-                        String photoUrl = 'https://i.pravatar.cc/150?img=12';
                         String status = data['lastMessage'] ?? '';
+                        ImageProvider? avatarImage;
 
                         if (userSnap.hasData && userSnap.data!.exists) {
                           final uData = userSnap.data!.data() as Map<String, dynamic>;
                           name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
-                          if (uData['photoURL'] != null && uData['photoURL'].toString().isNotEmpty) photoUrl = uData['photoURL'];
+                          
+                          if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) {
+                            avatarImage = MemoryImage(base64Decode(uData['photoBase64']));
+                          } else if (uData['photoURL'] != null && uData['photoURL'].toString().isNotEmpty) {
+                            avatarImage = NetworkImage(uData['photoURL']);
+                          }
                         }
 
                         return ListTile(
-                          leading: CircleAvatar(radius: 26, backgroundImage: NetworkImage(photoUrl)),
+                          leading: CircleAvatar(
+                            radius: 26, 
+                            backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')
+                          ),
                           title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
                           subtitle: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
                           trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),

@@ -11,7 +11,6 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'call_screen.dart';
-import 'contact_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -28,77 +27,67 @@ class _ChatScreenState extends State<ChatScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
   String? _wallpaperPath;
-  
-  Map<String, dynamic>? _replyingTo;
-  bool _isAdmin = false;
-  String _roomType = "group";
-  bool _isSearching = false;
-  String _searchQuery = "";
+  String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
 
-  // State untuk Presence & Typing
-  bool _isOtherTyping = false;
-  bool _isMeTyping = false;
-  Timer? _typingTimer;
+  // Profil Lawan Bicara (Untuk Chat Pribadi)
+  String _otherName = "";
+  String _otherPhoto = "";
+  String _otherStatus = "";
 
   @override
   void initState() {
     super.initState();
     _loadWallpaper();
-    _loadRoomInfo();
-    _listenToTyping();
+    _loadReceiverProfile();
     _markMessagesAsRead();
   }
 
-  @override
-  void dispose() {
-    _typingTimer?.cancel();
-    _msgController.dispose();
-    _recorder.dispose();
-    super.dispose();
+  Future<void> _loadWallpaper() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => _wallpaperPath = prefs.getString('wallpaper_path'));
   }
 
-  void _listenToTyping() {
-    if (widget.roomId == 'global') return;
-    FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).snapshots().listen((snap) {
-      if (snap.exists) {
-        final data = snap.data()!;
-        final myUid = FirebaseAuth.instance.currentUser?.uid;
-        final typingUsers = data['typing'] as Map<String, dynamic>? ?? {};
-        bool otherTyping = false;
-        typingUsers.forEach((key, value) {
-          if (key != myUid && value == true) otherTyping = true;
-        });
-        if (mounted) setState(() => _isOtherTyping = otherTyping);
-      }
-    });
-  }
-
-  void _onTextChanged(String text) {
-    if (widget.roomId == 'global') return;
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    if (myUid == null) return;
-
-    if (!_isMeTyping && text.isNotEmpty) {
-      _isMeTyping = true;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': true});
+  Future<void> _loadReceiverProfile() async {
+    if (widget.roomId == 'global') {
+      setState(() {
+        _otherName = widget.roomName;
+        _otherPhoto = 'https://i.pravatar.cc/150?img=11';
+        _otherStatus = 'Ruang publik';
+      });
+      return;
     }
 
-    _typingTimer?.cancel();
-    _typingTimer = Timer(const Duration(seconds: 2), () {
-      _isMeTyping = false;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': false});
-    });
+    // Cari room untuk mendapatkan UID lawan bicara
+    final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
+    if (roomDoc.exists) {
+      final members = (roomDoc.data()!['members'] as List?) ?? [];
+      final otherUid = members.firstWhere((id) => id != myUid, orElse: () => '');
+      
+      if (otherUid.isNotEmpty) {
+        // Dengarkan status online/offline secara real-time
+        FirebaseFirestore.instance.collection('users').doc(otherUid).snapshots().listen((userDoc) {
+          if (userDoc.exists && mounted) {
+            final data = userDoc.data()!;
+            setState(() {
+              _otherName = data['displayName'] ?? data['email']?.split('@')[0] ?? widget.roomName;
+              _otherPhoto = data['photoURL'] ?? 'https://i.pravatar.cc/150?img=12';
+              if (data['isOnline'] == true) {
+                _otherStatus = 'Online';
+              } else if (data['lastSeen'] != null) {
+                _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}';
+              } else {
+                _otherStatus = 'Offline';
+              }
+            });
+          }
+        });
+      }
+    }
   }
 
   void _markMessagesAsRead() async {
     if (widget.roomId == 'global') return;
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    if (myUid == null) return;
-    final snapshot = await FirebaseFirestore.instance
-        .collection('rooms').doc(widget.roomId).collection('messages')
-        .where('senderId', isNotEqualTo: myUid)
-        .where('status', isEqualTo: 'sent')
-        .get();
+    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').where('senderId', isNotEqualTo: myUid).where('status', isEqualTo: 'sent').get();
     final batch = FirebaseFirestore.instance.batch();
     for (var doc in snapshot.docs) {
       batch.update(doc.reference, {'status': 'read'});
@@ -106,32 +95,10 @@ class _ChatScreenState extends State<ChatScreen> {
     await batch.commit();
   }
 
-  Future<void> _loadRoomInfo() async {
-    if (widget.roomId == 'global') return;
-    final doc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
-    if (doc.exists) {
-      final data = doc.data()!;
-      setState(() {
-        _roomType = data['type'] ?? 'group';
-        _isAdmin = (data['admins'] as List?)?.contains(FirebaseAuth.instance.currentUser?.uid) ?? false;
-      });
-    }
-  }
-
-  Future<void> _loadWallpaper() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _wallpaperPath = prefs.getString('wallpaper_path');
-    });
-  }
-
   void _sendMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
-    
-    final replyData = _replyingTo;
     _msgController.clear();
-    setState(() => _replyingTo = null);
 
     final user = FirebaseAuth.instance.currentUser;
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
@@ -140,8 +107,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'senderId': user?.uid,
       'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
       'timestamp': FieldValue.serverTimestamp(),
-      'replyTo': replyData,
-      'reactions': {},
       'status': 'sent',
     });
 
@@ -149,7 +114,6 @@ class _ChatScreenState extends State<ChatScreen> {
       FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
         'lastMessage': text,
         'lastMessageTime': FieldValue.serverTimestamp(),
-        'typing.${user?.uid}': false,
       });
     }
   }
@@ -178,9 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final path = await _recorder.stop();
       setState(() => _isRecording = false);
-      if (path != null) {
-        _uploadFile(File(path), 'audio');
-      }
+      if (path != null) _uploadFile(File(path), 'audio');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
     }
@@ -200,9 +162,8 @@ class _ChatScreenState extends State<ChatScreen> {
         'mediaUrl': downloadUrl,
         'text': '',
         'senderId': user?.uid,
-        'senderName': user?.displayName ?? user?.email?.split('@')[0] ?? 'Anonim',
+        'senderName': user?.displayName ?? 'Anonim',
         'timestamp': FieldValue.serverTimestamp(),
-        'reactions': {},
         'status': 'sent',
       });
 
@@ -219,286 +180,127 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _addReaction(String messageId, String emoji) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    await FirebaseFirestore.instance
-        .collection('rooms')
-        .doc(widget.roomId)
-        .collection('messages')
-        .doc(messageId)
-        .update({'reactions.${user.uid}': emoji});
-  }
-
-  void _deleteMessage(String messageId) async {
-    await FirebaseFirestore.instance
-        .collection('rooms')
-        .doc(widget.roomId)
-        .collection('messages')
-        .doc(messageId)
-        .delete();
-  }
-
-  Future<void> _clearChat() async {
-    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').get();
-    final batch = FirebaseFirestore.instance.batch();
-    for (var doc in snapshot.docs) {
-      batch.delete(doc.reference);
-    }
-    await batch.commit();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Riwayat chat dibersihkan.')));
-    }
-  }
-
-  void _showMessageOptions(DocumentSnapshot doc, Map<String, dynamic> data, bool isMe) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) {
-                    return GestureDetector(
-                      onTap: () {
-                        _addReaction(doc.id, emoji);
-                        Navigator.pop(context);
-                      },
-                      child: Text(emoji, style: const TextStyle(fontSize: 28)),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Balas'),
-                onTap: () {
-                  setState(() {
-                    _replyingTo = {
-                      'text': data['type'] == 'text' ? data['text'] : 'Media',
-                      'senderName': data['senderName']
-                    };
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-              if (isMe)
-                ListTile(
-                  leading: const Icon(Icons.delete, color: Colors.red),
-                  title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)),
-                  onTap: () {
-                    _deleteMessage(doc.id);
-                    Navigator.pop(context);
-                  },
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF202C33) : const Color(0xFF075E54),
         foregroundColor: Colors.white,
-        title: InkWell(
-          onTap: () {
-            if (widget.roomId != 'global' && _roomType != 'group' && _roomType != 'channel') {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: widget.roomId, fallbackName: widget.roomName)));
-            }
-          },
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Colors.white24,
-                child: Text(widget.roomName[0], style: const TextStyle(color: Colors.white)),
-              ),
-              const SizedBox(width: 12),
-              Column(
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundImage: NetworkImage(_otherPhoto.isNotEmpty ? _otherPhoto : 'https://i.pravatar.cc/150'),
+              backgroundColor: Colors.grey[300],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(widget.roomName, style: const TextStyle(fontSize: 18)),
-                  if (_isOtherTyping)
-                    const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                  else if (_roomType == 'group' || _roomType == 'channel')
-                    Text('${_roomType == 'group' ? 'Grup' : 'Saluran'}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  if (_otherStatus.isNotEmpty)
+                    Text(
+                      _otherStatus, 
+                      style: TextStyle(
+                        fontSize: 12, 
+                        color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70,
+                        fontWeight: _otherStatus == 'Online' ? FontWeight.bold : FontWeight.normal
+                      )
+                    ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         actions: [
-          IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () {
-            setState(() {
-              _isSearching = !_isSearching;
-              if (!_isSearching) _searchQuery = "";
-            });
-          }),
           IconButton(icon: const Icon(Icons.videocam), onPressed: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)));
           }),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'clear') _clearChat();
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat')),
-            ],
-          ),
+          IconButton(icon: const Icon(Icons.call), onPressed: () {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)));
+          }),
         ],
       ),
       body: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
-          image: _wallpaperPath != null 
-              ? DecorationImage(image: FileImage(File(_wallpaperPath!)), fit: BoxFit.cover, opacity: 0.5)
-              : null,
+          image: _wallpaperPath != null ? DecorationImage(image: FileImage(File(_wallpaperPath!)), fit: BoxFit.cover, opacity: 0.2) : null,
         ),
         child: Column(
           children: [
-            if (_isSearching)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: isDark ? const Color(0xFF202C33) : Colors.white,
-                child: TextField(
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                  decoration: InputDecoration(
-                    hintText: 'Cari pesan...',
-                    hintStyle: TextStyle(color: isDark ? Colors.grey : Colors.black54),
-                    border: InputBorder.none,
-                    filled: true,
-                    fillColor: isDark ? Colors.black26 : Colors.grey[200],
-                    prefixIcon: const Icon(Icons.search),
-                  ),
-                  onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
-                ),
-              ),
             if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                  
-                  final docs = snapshot.data!.docs.where((doc) {
-                    if (_searchQuery.isEmpty) return true;
-                    final data = doc.data() as Map<String, dynamic>;
-                    final text = data['text']?.toString().toLowerCase() ?? '';
-                    return text.contains(_searchQuery);
-                  }).toList();
+                  if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
+                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
+                  final docs = snapshot.data!.docs;
 
-                  if (docs.isEmpty) return const Center(child: Text('Pesan tidak ditemukan.'));
+                  if (docs.isEmpty) return const Center(child: Text('Belum ada pesan.'));
 
                   return ListView.builder(
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
                     itemCount: docs.length,
                     itemBuilder: (context, index) {
-                      final doc = docs[index];
-                      final data = doc.data() as Map<String, dynamic>;
+                      final data = docs[index].data() as Map<String, dynamic>;
                       final isMe = data['senderId'] == myUid;
                       final type = data['type'];
                       final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-                      final replyTo = data['replyTo'];
-                      final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
 
                       return Align(
                         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                        child: GestureDetector(
-                          onLongPress: () => _showMessageOptions(doc, data, isMe),
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: isMe 
-                                  ? (isDark ? const Color(0xFF005C4B) : const Color(0xFFD9FDD3))
-                                  : (isDark ? const Color(0xFF202C33) : Colors.white),
-                              borderRadius: BorderRadius.only(
-                                topLeft: const Radius.circular(12),
-                                topRight: const Radius.circular(12),
-                                bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
-                                bottomRight: isMe ? Radius.zero : const Radius.circular(12),
-                              ),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1))]
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isMe 
+                                ? (isDark ? const Color(0xFF005C4B) : const Color(0xFFD9FDD3))
+                                : (isDark ? const Color(0xFF202C33) : Colors.white),
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(12),
+                              topRight: const Radius.circular(12),
+                              bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+                              bottomRight: isMe ? Radius.zero : const Radius.circular(12),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!isMe)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF00A884))),
-                                  ),
-                                if (replyTo != null)
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    decoration: BoxDecoration(
-                                      color: isDark ? Colors.black26 : Colors.black12,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4)),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
-                                        Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87)),
-                                      ],
-                                    ),
-                                  ),
-                                if (type == 'image')
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
-                                  )
-                                else if (type == 'audio')
-                                  _buildAudioPlayer(data['mediaUrl'], isMe)
-                                else
-                                  Text(data['text'] ?? '', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
-                                
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(timestamp, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                                    if (isMe) ...[
-                                      const SizedBox(width: 4),
-                                      Icon(
-                                        Icons.done_all, 
-                                        size: 16, 
-                                        color: data['status'] == 'read' ? Colors.blue : Colors.grey,
-                                      ), 
-                                    ]
-                                  ],
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1))]
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (!isMe)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF00A884))),
                                 ),
-                                if (reactions.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Wrap(
-                                      spacing: 4,
-                                      children: reactions.values.map((emoji) => Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)),
-                                        child: Text(emoji, style: const TextStyle(fontSize: 12)),
-                                      )).toList(),
-                                    ),
-                                  ),
-                              ],
-                            ),
+                              if (type == 'image')
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
+                                )
+                              else if (type == 'audio')
+                                _buildAudioPlayer(data['mediaUrl'], isMe)
+                              else
+                                Text(data['text'] ?? '', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                              
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(timestamp, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                  if (isMe) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.done_all, size: 16, color: data['status'] == 'read' ? Colors.blue : Colors.grey),
+                                  ]
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -508,90 +310,52 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             
-            if (_roomType == 'channel' && !_isAdmin)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                color: isDark ? const Color(0xFF202C33) : Colors.grey[200],
-                child: Text(
-                  'Hanya admin yang dapat mengirim pesan di saluran ini',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  children: [
-                    if (_replyingTo != null)
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(10)),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.reply, color: Color(0xFF00A884)),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(_replyingTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
-                                  Text(_replyingTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
-                                ],
-                              ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(25)),
+                      child: Row(
+                        children: [
+                          IconButton(icon: const Icon(Icons.camera_alt, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera)),
+                          Expanded(
+                            child: TextField(
+                              controller: _msgController,
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                              decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
                             ),
-                            IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyingTo = null)),
-                          ],
-                        ),
+                          ),
+                          IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery)),
+                        ],
                       ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(color: isDark ? const Color(0xFF202C33) : Colors.white, borderRadius: BorderRadius.circular(25)),
-                            child: Row(
-                              children: [
-                                IconButton(icon: const Icon(Icons.camera_alt, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.camera)),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _msgController,
-                                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                                    decoration: const InputDecoration(hintText: 'Ketik pesan', border: InputBorder.none),
-                                    onChanged: _onTextChanged,
-                                  ),
-                                ),
-                                IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickMedia(ImageSource.gallery)),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onLongPressStart: (_) => _startRecording(),
-                          onLongPressEnd: (_) => _stopRecording(),
-                          child: CircleAvatar(
-                            backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
-                            radius: 26,
-                            child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white),
-                          ),
-                        ),
-                        if (!_isRecording) ...[
-                          const SizedBox(width: 8),
-                          CircleAvatar(
-                            backgroundColor: const Color(0xFF00A884),
-                            radius: 26,
-                            child: IconButton(
-                              icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                              onPressed: _isUploading ? null : _sendMessage,
-                            ),
-                          ),
-                        ]
-                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onLongPressStart: (_) => _startRecording(),
+                    onLongPressEnd: (_) => _stopRecording(),
+                    child: CircleAvatar(
+                      backgroundColor: _isRecording ? Colors.red : const Color(0xFF00A884),
+                      radius: 26,
+                      child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white),
+                    ),
+                  ),
+                  if (!_isRecording) ...[
+                    const SizedBox(width: 8),
+                    CircleAvatar(
+                      backgroundColor: const Color(0xFF00A884),
+                      radius: 26,
+                      child: IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                        onPressed: _isUploading ? null : _sendMessage,
+                      ),
+                    ),
+                  ]
+                ],
               ),
+            ),
           ],
         ),
       ),

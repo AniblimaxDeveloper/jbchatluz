@@ -51,15 +51,16 @@ jobs:
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>' android/app/src/main/AndroidManifest.xml
+
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
       - name: Clean and Build
         run: |
           flutter clean
           flutter pub get
-          if [ -f assets/icon.png ]; then
-            dart run flutter_launcher_icons
-          fi
+          if [ -f assets/icon.png ]; then dart run flutter_launcher_icons; fi
           flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:

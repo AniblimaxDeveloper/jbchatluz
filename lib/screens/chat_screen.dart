@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
@@ -38,15 +40,11 @@ class _ChatScreenState extends State<ChatScreen> {
   
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
-  
-  // State MOD
   bool _isAntiDelete = false;
   bool _isAutoReply = false;
   String _autoReplyMsg = "";
   StreamSubscription? _messageListener;
-  
-  // State TTL (Pesan Sementara)
-  int _disappearingDuration = 0; // Dalam milidetik
+  int _disappearingDuration = 0;
 
   @override
   void initState() {
@@ -76,16 +74,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _setupAutoReply() {
     if (!_isAutoReply) return;
-    _messageListener = FirebaseFirestore.instance
-        .collection('rooms').doc(widget.roomId).collection('messages')
-        .orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
+    _messageListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
         if (data['senderId'] != myUid && data['type'] == 'text') {
            FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-            'type': 'text', 'text': '🤖 [Auto-Reply]: $_autoReplyMsg', 'senderId': myUid,
-            'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot',
-            'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+            'type': 'text', 'text': '🤖 [Auto-Reply]: $_autoReplyMsg', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
           });
         }
       }
@@ -100,11 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
     if (roomDoc.exists) {
       final type = roomDoc.data()!['type'];
-      setState(() {
-        _roomType = type;
-        _disappearingDuration = roomDoc.data()!['disappearingDuration'] ?? 0;
-      });
-      
+      setState(() { _roomType = type; _disappearingDuration = roomDoc.data()!['disappearingDuration'] ?? 0; });
       if (type == 'private') {
         final members = (roomDoc.data()!['members'] as List?) ?? [];
         _otherUid = members.firstWhere((id) => id != myUid, orElse: () => '');
@@ -116,9 +106,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 _otherName = data['displayName'] ?? data['email']?.split('@')[0] ?? widget.roomName;
                 _otherPhoto = data['photoBase64'] ?? '';
                 if (data['isOnline'] == true) { _otherStatus = 'Online'; } 
-                else if (data['lastSeen'] != null) {
-                  _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}';
-                } else { _otherStatus = 'Offline'; }
+                else if (data['lastSeen'] != null) { _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}'; } 
+                else { _otherStatus = 'Offline'; }
               });
             }
           });
@@ -141,10 +130,47 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _setDisappearingMessages(int durationInMillis) async {
     if (widget.roomId == 'global') return;
-    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
-      'disappearingDuration': durationInMillis,
-    });
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'disappearingDuration': durationInMillis});
     setState(() => _disappearingDuration = durationInMillis);
+  }
+
+  void _logCall(bool isVideo) async {
+    if (_otherUid.isNotEmpty) {
+      await FirebaseFirestore.instance.collection('call_logs').add({
+        'callerId': myUid,
+        'receiverId': _otherUid,
+        'type': isVideo ? 'video' : 'voice',
+        'status': 'outgoing',
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> _shareLocation() async {
+    setState(() => _isUploading = true);
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) throw Exception('Izin lokasi ditolak');
+      }
+
+      Position position = await Geolocator.getCurrentPosition();
+      String locationUrl = 'https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}';
+
+      Timestamp? expiresAt;
+      if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+
+      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+        'type': 'location', 'mediaUrl': locationUrl, 'text': '📍 Lokasi Saya',
+        'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+        'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim lokasi: $e')));
+    } finally {
+      setState(() => _isUploading = false);
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -161,7 +187,6 @@ class _ChatScreenState extends State<ChatScreen> {
       if (jsonData['success'] == true) {
         Timestamp? expiresAt;
         if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-        
         await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
           'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': '',
           'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
@@ -193,32 +218,25 @@ class _ChatScreenState extends State<ChatScreen> {
         final ref = FirebaseStorage.instance.ref().child('chat_audio/${DateTime.now().millisecondsSinceEpoch}.m4a');
         await ref.putFile(File(path));
         final url = await ref.getDownloadURL();
-        
         Timestamp? expiresAt;
         if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-
         await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
           'type': 'audio', 'mediaUrl': url, 'text': '',
           'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
           'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
         });
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload suara.')));
-    } finally { setState(() => _isUploading = false); }
+    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload suara.'))); } finally { setState(() => _isUploading = false); }
   }
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
-    
     Timestamp? expiresAt;
     if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-      'type': 'text', 'text': text, 'senderId': myUid,
-      'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+      'type': 'text', 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
       'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
     });
     if (widget.roomId != 'global') {
@@ -230,7 +248,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final questionController = TextEditingController();
     final optionAController = TextEditingController();
     final optionBController = TextEditingController();
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -251,14 +268,8 @@ class _ChatScreenState extends State<ChatScreen> {
             onPressed: () async {
               if (questionController.text.isNotEmpty && optionAController.text.isNotEmpty && optionBController.text.isNotEmpty) {
                 await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-                  'type': 'poll',
-                  'question': questionController.text,
-                  'options': [optionAController.text, optionBController.text],
-                  'votes': {},
-                  'senderId': myUid,
-                  'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-                  'timestamp': FieldValue.serverTimestamp(),
-                  'status': 'sent',
+                  'type': 'poll', 'question': questionController.text, 'options': [optionAController.text, optionBController.text], 'votes': {},
+                  'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
                 });
                 if (context.mounted) Navigator.pop(context);
               }
@@ -278,18 +289,13 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text) {
     showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
-              ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
-              if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
-            ],
-          ),
-        );
-      },
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
+          ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
+          if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
+        ]),
+      ),
     );
   }
 
@@ -334,39 +340,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        if (_disappearingDuration > 0)
-                          const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                        else if (_otherStatus.isNotEmpty)
-                          Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
-                      ],
-                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      if (_disappearingDuration > 0) const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                      else if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
+                    ]),
                   ),
                 ],
               ),
             ),
             actions: [
-              // Tombol TTL
               PopupMenuButton<String>(
                 icon: const Icon(Icons.timer),
-                onSelected: (val) {
-                  if (val == '0') _setDisappearingMessages(0);
-                  if (val == '60000') _setDisappearingMessages(60000);
-                  if (val == '3600000') _setDisappearingMessages(3600000);
-                  if (val == '86400000') _setDisappearingMessages(86400000);
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(value: '0', child: Text('Nonaktifkan')),
-                  const PopupMenuItem(value: '60000', child: Text('1 Menit')),
-                  const PopupMenuItem(value: '3600000', child: Text('1 Jam')),
-                  const PopupMenuItem(value: '86400000', child: Text('1 Hari')),
-                ],
+                onSelected: (val) { if (val == '0') _setDisappearingMessages(0); if (val == '60000') _setDisappearingMessages(60000); if (val == '3600000') _setDisappearingMessages(3600000); if (val == '86400000') _setDisappearingMessages(86400000); },
+                itemBuilder: (context) => [const PopupMenuItem(value: '0', child: Text('Nonaktifkan')), const PopupMenuItem(value: '60000', child: Text('1 Menit')), const PopupMenuItem(value: '3600000', child: Text('1 Jam')), const PopupMenuItem(value: '86400000', child: Text('1 Hari'))],
               ),
-              IconButton(icon: const Icon(Icons.videocam), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)))),
-              IconButton(icon: const Icon(Icons.call), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)))),
+              IconButton(icon: const Icon(Icons.videocam), onPressed: () { _logCall(true); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true))); }),
+              IconButton(icon: const Icon(Icons.call), onPressed: () { _logCall(false); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false))); }),
             ],
           ),
           body: Column(
@@ -377,126 +367,56 @@ class _ChatScreenState extends State<ChatScreen> {
                   stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                    
                     final now = DateTime.now();
                     final docs = snapshot.data!.docs.where((doc) {
                       final data = doc.data() as Map<String, dynamic>;
-                      
-                      // Filter TTL (Pesan Sementara)
-                      if (data['expiresAt'] != null) {
-                        final expiresAt = (data['expiresAt'] as Timestamp).toDate();
-                        if (now.isAfter(expiresAt)) {
-                          doc.reference.delete(); // Hapus permanen dari database
-                          return false;
-                        }
-                      }
-
-                      // Filter Hapus Untuk Saya
-                      final deletedFor = (data['deletedFor'] as List?) ?? [];
-                      return !deletedFor.contains(myUid);
+                      if (data['expiresAt'] != null) { final expiresAt = (data['expiresAt'] as Timestamp).toDate(); if (now.isAfter(expiresAt)) { doc.reference.delete(); return false; } }
+                      final deletedFor = (data['deletedFor'] as List?) ?? []; return !deletedFor.contains(myUid);
                     }).toList();
 
                     return ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                      itemCount: docs.length,
+                      reverse: true, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), itemCount: docs.length,
                       itemBuilder: (context, index) {
-                        final doc = docs[index];
-                        final data = doc.data() as Map<String, dynamic>;
-                        final isMe = data['senderId'] == myUid;
-                        final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-                        final isDeleted = data['isDeleted'] == true;
-                        final type = data['type'];
-
+                        final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
+                        final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
+                        final isDeleted = data['isDeleted'] == true; final type = data['type'];
                         String displayText = data['text'] ?? '';
-                        if (isDeleted && !isMe) {
-                          displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus';
-                        }
+                        if (isDeleted && !isMe) { displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus'; }
 
                         return Align(
                           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                           child: GestureDetector(
                             onLongPress: () => _showMessageOptions(doc, isMe, displayText),
                             child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (!isMe && widget.roomId != 'global' && _roomType != 'private')
-                                    Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
-                                  
-                                  // RENDER MEDIA
-                                  if (type == 'image')
-                                    GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl']), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
-                                  else if (type == 'audio')
-                                    Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
-                                  
-                                  // RENDER POLL
-                                  else if (type == 'poll')
-                                    Container(
-                                      width: 250,
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                                          const SizedBox(height: 8),
-                                          ...List.generate(2, (i) {
-                                            final options = List<String>.from(data['options'] ?? []);
-                                            final votes = Map<String, dynamic>.from(data['votes'] ?? {});
-                                            final voteCount = votes.values.where((v) => v == i).length;
-                                            final totalVotes = votes.length;
-                                            final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes);
-
-                                            return GestureDetector(
-                                              onTap: () => _votePoll(doc.id, i, votes),
-                                              child: Container(
-                                                margin: const EdgeInsets.only(bottom: 6),
-                                                padding: const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
-                                                child: Stack(
-                                                  children: [
-                                                    Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)),
-                                                    Row(
-                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                      children: [
-                                                        Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)),
-                                                        Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    )
-                                  
-                                  // RENDER TEKS
-                                  else
-                                    Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
-                                  
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey),
-                                      const SizedBox(width: 4),
-                                      Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                      if (isMe) ...[
-                                        const SizedBox(width: 4),
-                                        Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey),
-                                      ]
-                                    ],
-                                  ),
-                                ],
-                              ),
+                              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
+                                if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl']), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
+                                else if (type == 'audio') Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
+                                else if (type == 'location')
+                                  GestureDetector(
+                                    onTap: () => launchUrl(Uri.parse(data['mediaUrl'])),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)),
+                                      child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))]),
+                                    ),
+                                  )
+                                else if (type == 'poll')
+                                  Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8),
+                                    ...List.generate(2, (i) {
+                                      final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {});
+                                      final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes);
+                                      return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])])));
+                                    }),
+                                  ]))
+                                else Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
+                                Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [
+                                  if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                  if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey)]
+                                ]),
+                              ]),
                             ),
                           ),
                         );
@@ -505,38 +425,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
-              
-              // BILAH INPUT
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)),
-                        child: Row(
-                          children: [
-                            IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
-                            IconButton(icon: const Icon(Icons.bar_chart, color: Colors.grey), onPressed: _createPoll), // Tombol Poll
-                            Expanded(child: TextField(controller: _msgController, onChanged: (val) => setState(() {}), style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
-                            IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null,
-                      onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null,
-                      child: CircleAvatar(
-                        backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366),
-                        radius: 24,
-                        child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)),
-                      ),
-                    ),
-                  ],
-                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
+                    IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
+                    IconButton(icon: const Icon(Icons.bar_chart, color: Colors.grey), onPressed: _createPoll),
+                    IconButton(icon: const Icon(Icons.location_on, color: Colors.grey), onPressed: _isUploading ? null : _shareLocation), // Tombol Lokasi
+                    Expanded(child: TextField(controller: _msgController, onChanged: (val) => setState(() {}), style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
+                    IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery)),
+                  ]))),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null,
+                    onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null,
+                    child: CircleAvatar(backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366), radius: 24, child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage))),
+                  ),
+                ]),
               ),
             ],
           ),

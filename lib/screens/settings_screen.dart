@@ -24,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _freezeLastSeen = false;
   bool _hideOnline = false;
   bool _hideBlueTick = false;
+  bool _biometricLock = false;
 
   @override
   void initState() {
@@ -45,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _freezeLastSeen = prefs.getBool('mod_freeze_lastseen') ?? false;
       _hideOnline = prefs.getBool('mod_hide_online') ?? false;
       _hideBlueTick = prefs.getBool('mod_hide_tick') ?? false;
+      _biometricLock = prefs.getBool('biometric_lock') ?? false;
     });
   }
 
@@ -99,6 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          SwitchListTile(secondary: const Icon(Icons.fingerprint, color: Colors.blue), title: Text('Kunci Sidik Jari', style: TextStyle(color: textColor)), value: _biometricLock, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('biometric_lock', val); setState(() => _biometricLock = val); }),
           ListTile(leading: const Icon(Icons.lock), title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _setPin),
           ListTile(leading: const Icon(Icons.lock_open, color: Colors.red), title: const Text('Hapus PIN', style: TextStyle(color: Colors.red)), onTap: _removePin),
           SwitchListTile(secondary: const Icon(Icons.done_all, color: Colors.blue), title: Text('Sembunyikan Centang Biru', style: TextStyle(color: textColor)), value: _hideBlueTick, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_tick', val); setState(() => _hideBlueTick = val); }),

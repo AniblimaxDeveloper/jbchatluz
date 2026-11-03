@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:local_auth/local_auth.dart';
 import 'screens/auth_screen.dart';
 import 'screens/chat_list_screen.dart';
 import 'screens/lock_screen.dart';
@@ -35,6 +36,7 @@ class JBChatLuzApp extends StatefulWidget {
 class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver {
   bool _isLocked = false;
   bool _isCheckingLock = true;
+  final LocalAuthentication _auth = LocalAuthentication();
 
   @override
   void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _checkAppLock(); }
@@ -47,21 +49,12 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
     if (user == null) return;
     final prefs = await SharedPreferences.getInstance();
     
-    // Cek MOD
     final isGhostMode = prefs.getBool('mod_hide_online') ?? false;
     final isAlwaysOnline = prefs.getBool('mod_always_online') ?? false;
     final isFreezeLastSeen = prefs.getBool('mod_freeze_lastseen') ?? false;
 
-    if (isAlwaysOnline) {
-      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
-      return;
-    }
-
-    if (isGhostMode) {
-      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false}).catchError((e) {});
-      if (!isFreezeLastSeen) FirebaseFirestore.instance.collection('users').doc(user.uid).update({'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
-      return;
-    }
+    if (isAlwaysOnline) { FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {}); return; }
+    if (isGhostMode) { FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false}).catchError((e) {}); if (!isFreezeLastSeen) FirebaseFirestore.instance.collection('users').doc(user.uid).update({'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {}); return; }
 
     if (state == AppLifecycleState.resumed) {
       FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
@@ -75,8 +68,18 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
     try {
       final prefs = await SharedPreferences.getInstance();
       final pin = prefs.getString('app_pin') ?? "";
-      if (mounted) setState(() { _isLocked = pin.isNotEmpty; _isCheckingLock = false; });
+      final isBio = prefs.getBool('biometric_lock') ?? false;
+      if (mounted) setState(() { _isLocked = pin.isNotEmpty || isBio; _isCheckingLock = false; });
     } catch (e) { if (mounted) setState(() { _isLocked = false; _isCheckingLock = false; }); }
+  }
+
+  Future<bool> _authenticateBiometric() async {
+    try {
+      final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
+      final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
+      if (!canAuthenticate) return false;
+      return await _auth.authenticate(localizedReason: 'Pindai sidik jari atau wajah Anda untuk membuka JBchatluz', options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true));
+    } catch (e) { return false; }
   }
 
   TextTheme _getTextTheme(String fontName) {
@@ -96,7 +99,7 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
           title: 'JBchatluz', debugShowCheckedModeBanner: false, themeMode: currentMode,
           theme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.light, textTheme: _getTextTheme(currentFont)),
           darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF0B141A), textTheme: _getTextTheme(currentFont)),
-          home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false)) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
+          home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false), authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
         );
       });
     });

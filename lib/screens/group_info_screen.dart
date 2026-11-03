@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 
 class GroupInfoScreen extends StatefulWidget {
   final String roomId;
@@ -18,6 +19,47 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
   final _searchIdController = TextEditingController();
   bool _isLoading = false;
 
+  Future<void> _editGroupName(String currentName) async {
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ganti Nama Grup'),
+        content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(
+            onPressed: () async {
+              if (controller.text.trim().isNotEmpty) {
+                await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'name': controller.text.trim()});
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changeGroupPhoto() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 10);
+    if (image == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final bytes = await File(image.path).readAsBytes();
+      final base64String = base64Encode(bytes);
+      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'photoBase64': base64String});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto grup diubah!')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _addMember() async {
     final searchId = _searchIdController.text.trim();
     if (searchId.isEmpty) return;
@@ -25,22 +67,17 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
 
     try {
       final userQuery = await FirebaseFirestore.instance.collection('users').where('jbId', isEqualTo: searchId).get();
-      
       if (userQuery.docs.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID tidak ditemukan!')));
         return;
       }
-
       final targetUid = userQuery.docs.first.id;
-
-      // Tambahkan ke members dan admins (opsional) di Firestore
       await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
         'members': FieldValue.arrayUnion([targetUid]),
       });
-
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Anggota berhasil ditambahkan')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Anggota ditambahkan')));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -49,13 +86,25 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     }
   }
 
+  Future<void> _removeMember(String uid) async {
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
+      'members': FieldValue.arrayRemove([uid]),
+      'admins': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> _makeAdmin(String uid) async {
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
+      'admins': FieldValue.arrayUnion([uid]),
+    });
+  }
+
   Future<void> _leaveGroup() async {
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
       'members': FieldValue.arrayRemove([myUid]),
+      'admins': FieldValue.arrayRemove([myUid]),
     });
-    if (mounted) {
-      Navigator.popUntil(context, (route) => route.isFirst);
-    }
+    if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   void _showAddMemberDialog() {
@@ -70,10 +119,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-          TextButton(
-            onPressed: _isLoading ? null : _addMember,
-            child: _isLoading ? const CircularProgressIndicator() : const Text('Tambah'),
-          ),
+          TextButton(onPressed: _isLoading ? null : _addMember, child: _isLoading ? const CircularProgressIndicator() : const Text('Tambah')),
         ],
       ),
     );
@@ -101,19 +147,51 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           final members = (data['members'] as List?) ?? [];
           final admins = (data['admins'] as List?) ?? [];
           final isAdmin = admins.contains(myUid);
+          final groupPhoto = data['photoBase64'];
+          final groupName = data['name'] ?? widget.roomName;
+
+          ImageProvider? avatarImage;
+          if (groupPhoto != null && groupPhoto.toString().isNotEmpty) {
+            avatarImage = MemoryImage(base64Decode(groupPhoto));
+          }
 
           return ListView(
             children: [
               const SizedBox(height: 30),
               Center(
-                child: CircleAvatar(
-                  radius: 60,
-                  backgroundColor: const Color(0xFF25D366),
-                  child: const Icon(Icons.group, size: 60, color: Colors.white),
+                child: GestureDetector(
+                  onTap: isAdmin ? _changeGroupPhoto : null,
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 60,
+                        backgroundColor: const Color(0xFF25D366),
+                        backgroundImage: avatarImage,
+                        child: avatarImage == null ? const Icon(Icons.group, size: 60, color: Colors.white) : null,
+                      ),
+                      if (isAdmin)
+                        Positioned(
+                          bottom: 0, right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                            child: const Icon(Icons.camera_alt, color: Color(0xFF25D366), size: 20),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              Center(child: Text(widget.roomName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor))),
+              Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(groupName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor)),
+                    if (isAdmin) IconButton(icon: const Icon(Icons.edit, size: 20, color: Colors.grey), onPressed: () => _editGroupName(groupName)),
+                  ],
+                ),
+              ),
               Center(child: Text('Grup', style: const TextStyle(color: Colors.grey))),
               
               const Divider(),
@@ -129,13 +207,11 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                 child: Text('${members.length} Anggota', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
               ),
 
-              // Daftar Anggota
               ...members.map((memberUid) {
                 return FutureBuilder<DocumentSnapshot>(
                   future: FirebaseFirestore.instance.collection('users').doc(memberUid).get(),
                   builder: (context, userSnap) {
-                    if (!userSnap.hasData) return const SizedBox.shrink();
-                    if (!userSnap.data!.exists) return const SizedBox.shrink();
+                    if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
 
                     final userData = userSnap.data!.data() as Map<String, dynamic>;
                     final name = userData['displayName'] ?? 'Pengguna';
@@ -152,7 +228,39 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                       leading: CircleAvatar(backgroundImage: avatar, backgroundColor: Colors.grey, child: avatar == null ? const Icon(Icons.person, color: Colors.white) : null),
                       title: Text(isMe ? 'Anda' : name, style: TextStyle(color: textColor)),
                       subtitle: Text(jbId, style: const TextStyle(color: Colors.grey)),
-                      trailing: isMemberAdmin ? const Text('Admin', style: TextStyle(color: Color(0xFF25D366), fontSize: 12)) : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isMemberAdmin) const Text('Admin', style: TextStyle(color: Color(0xFF25D366), fontSize: 12)),
+                          if (isAdmin && !isMe)
+                            IconButton(
+                              icon: const Icon(Icons.more_vert, size: 20),
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  builder: (context) => SafeArea(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (!isMemberAdmin)
+                                          ListTile(
+                                            leading: const Icon(Icons.star, color: Colors.blue),
+                                            title: const Text('Jadikan Admin'),
+                                            onTap: () { _makeAdmin(memberUid); Navigator.pop(context); },
+                                          ),
+                                        ListTile(
+                                          leading: const Icon(Icons.person_remove, color: Colors.red),
+                                          title: const Text('Keluarkan dari Grup', style: TextStyle(color: Colors.red)),
+                                          onTap: () { _removeMember(memberUid); Navigator.pop(context); },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
                     );
                   },
                 );

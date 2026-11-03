@@ -15,9 +15,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
-  final _aboutController = TextEditingController(text: 'Tersedia');
+  final _aboutController = TextEditingController();
   bool _isUploading = false;
-  String _jbId = "...";
+  String _jbId = "Memuat...";
   String _email = "";
   String? _photoBase64;
   
@@ -40,6 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final data = doc.data()!;
       setState(() {
         _nameController.text = data['displayName'] ?? '';
+        _aboutController.text = data['about'] ?? 'Tersedia';
         _jbId = data['jbId'] ?? 'Error';
         _email = data['email'] ?? '';
         _photoBase64 = data['photoBase64'];
@@ -90,6 +91,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
+  }
+
+  Future<void> _updateName() async {
+    setState(() => _isUploading = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'displayName': _nameController.text.trim(),
+      });
+      await user.updateDisplayName(_nameController.text.trim());
+      
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama diperbarui!')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  Future<void> _updateAbout() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+      'about': _aboutController.text.trim(),
+    });
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status Tentang diperbarui')));
   }
 
   @override
@@ -147,9 +176,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 32),
           
           _buildProfileItem(Icons.person_outline, 'Nama', _nameController.text, textColor, () {
-             // Logika edit nama
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Ubah Nama'),
+                content: TextField(controller: _nameController, decoration: const InputDecoration(border: OutlineInputBorder())),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                  TextButton(onPressed: () { _updateName(); Navigator.pop(context); }, child: const Text('Simpan')),
+                ],
+              ),
+            );
           }),
-          _buildProfileItem(Icons.info_outline, 'Tentang', 'Tersedia', textColor, () {}),
+          
+          _buildProfileItem(Icons.info_outline, 'Tentang', _aboutController.text, textColor, () {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Ubah Status'),
+                content: TextField(controller: _aboutController, decoration: const InputDecoration(border: OutlineInputBorder())),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                  TextButton(onPressed: () { _updateAbout(); Navigator.pop(context); }, child: const Text('Simpan')),
+                ],
+              ),
+            );
+          }),
+          
           _buildProfileItem(Icons.alternate_email, 'Nama pengguna', _jbId, textColor, () {}),
           _buildProfileItem(Icons.phone_outlined, 'Email', _email, textColor, () {}),
           _buildProfileItem(Icons.link, 'Tautan', 'Tambah tautan', textColor, () {}, isLink: true),

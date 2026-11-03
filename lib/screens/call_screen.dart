@@ -18,6 +18,8 @@ class _CallScreenState extends State<CallScreen> {
   final Map<int, bool> _remoteUsers = {}; 
   bool _localUserJoined = false;
   bool _isMuted = false;
+  bool _isVideoOff = false;
+  bool _isSpeakerOn = true;
 
   @override
   void initState() {
@@ -53,62 +55,102 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Grid untuk menampung banyak video (Group Call)
-    List<Widget> videoWidgets = [];
-    
-    if (_localUserJoined) {
-      videoWidgets.add(AgoraVideoView(controller: VideoViewController(rtcEngine: _engine, canvas: const VideoCanvas(uid: 0))));
-    }
-    
-    for (var uid in _remoteUsers.keys) {
-      videoWidgets.add(AgoraVideoView(controller: VideoViewController.remote(rtcEngine: _engine, canvas: VideoCanvas(uid: uid), connection: RtcConnection(channelId: widget.channelName))));
-    }
-
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text('Panggilan Grup: ${widget.channelName}'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: videoWidgets.isEmpty 
-              ? const Center(child: Text('Menunggu peserta...', style: TextStyle(color: Colors.white)))
-              : GridView.count(
-                  crossAxisCount: videoWidgets.length > 1 ? 2 : 1,
-                  children: videoWidgets,
-                ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: _isMuted ? Colors.red : Colors.white24,
-                  child: IconButton(
-                    icon: Icon(_isMuted ? Icons.mic_off : Icons.mic, color: Colors.white),
-                    onPressed: () {
-                      setState(() => _isMuted = !_isMuted);
-                      _engine.muteLocalAudioStream(_isMuted);
-                    },
-                  ),
-                ),
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: Colors.red,
-                  child: IconButton(
-                    icon: const Icon(Icons.call_end, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-              ],
+      backgroundColor: const Color(0xFF0B141A),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            // Video Lawan Bicara (Layar Penuh)
+            Positioned.fill(
+              child: _remoteUsers.isNotEmpty
+                  ? AgoraVideoView(controller: VideoViewController.remote(rtcEngine: _engine, canvas: VideoCanvas(uid: _remoteUsers.keys.first), connection: RtcConnection(channelId: widget.channelName)))
+                  : Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircleAvatar(radius: 50, backgroundColor: Colors.white24, child: Icon(Icons.person, size: 50, color: Colors.white)),
+                          const SizedBox(height: 20),
+                          Text('Memanggil...\n${widget.channelName}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
             ),
-          )
-        ],
+
+            // Video Kita Sendiri (Pojok Kanan Atas)
+            if (_localUserJoined && widget.isVideoCall)
+              Positioned(
+                top: 20, right: 20,
+                child: Container(
+                  width: 120, height: 160,
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white24)),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AgoraVideoView(controller: VideoViewController(rtcEngine: _engine, canvas: const VideoCanvas(uid: 0))),
+                  ),
+                ),
+              ),
+
+            // Info Nama (Kiri Atas)
+            Positioned(
+              top: 20, left: 20,
+              child: Row(children: [
+                const Icon(Icons.lock, color: Colors.white, size: 16),
+                const SizedBox(width: 4),
+                Text(widget.isVideoCall ? 'Panggilan Video Terenkripsi' : 'Panggilan Suara Terenkripsi', style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ]),
+            ),
+
+            // Tombol Kontrol di Bawah
+            Positioned(
+              bottom: 40, left: 0, right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Mute
+                  _buildCallButton(Icons.mic, _isMuted ? Colors.white : Colors.white24, _isMuted ? Colors.black : Colors.white, () {
+                    setState(() => _isMuted = !_isMuted);
+                    _engine.muteLocalAudioStream(_isMuted);
+                  }),
+                  
+                  // Speaker
+                  _buildCallButton(_isSpeakerOn ? Icons.volume_up : Icons.volume_off, Colors.white24, Colors.white, () {
+                    setState(() => _isSpeakerOn = !_isSpeakerOn);
+                    _engine.setEnableSpeakerphone(_isSpeakerOn);
+                  }),
+
+                  // Matikan Video
+                  if (widget.isVideoCall)
+                    _buildCallButton(_isVideoOff ? Icons.videocam_off : Icons.videocam, Colors.white24, Colors.white, () {
+                      setState(() => _isVideoOff = !_isVideoOff);
+                      _engine.muteLocalVideoStream(_isVideoOff);
+                    }),
+
+                  // Putar Kamera
+                  if (widget.isVideoCall)
+                    _buildCallButton(Icons.flip_camera_android, Colors.white24, Colors.white, () {
+                      _engine.switchCamera();
+                    }),
+
+                  // Akhiri Panggilan
+                  _buildCallButton(Icons.call_end, Colors.red, Colors.white, () {
+                    Navigator.pop(context);
+                  }),
+                ],
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCallButton(IconData icon, Color bgColor, Color iconColor, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: CircleAvatar(
+        radius: 30,
+        backgroundColor: bgColor,
+        child: Icon(icon, color: iconColor, size: 28),
       ),
     );
   }

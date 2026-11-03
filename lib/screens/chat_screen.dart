@@ -80,9 +80,9 @@ class _ChatScreenState extends State<ChatScreen> {
     await batch.commit();
   }
 
-  Future<void> _sendImage() async {
+  Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
-    final XFile? media = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
     if (media == null) return;
 
     setState(() => _isUploading = true);
@@ -124,6 +124,32 @@ class _ChatScreenState extends State<ChatScreen> {
         'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp(),
       });
     }
+  }
+
+  void _showEmojiPicker() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        final emojis = ['😀', '😂', '🥰', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '❤️', '💔', '🎉', '✨', '📷', '🎵'];
+        return Container(
+          height: 250,
+          padding: const EdgeInsets.all(8),
+          child: GridView.builder(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10),
+            itemCount: emojis.length,
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () {
+                  _msgController.text += emojis[index];
+                  Navigator.pop(context);
+                },
+                child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28))),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -248,7 +274,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               
-              // BILAH INPUT CHAT (Persis Gambar 4)
+              // BILAH INPUT CHAT
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 color: Colors.transparent,
@@ -265,7 +291,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
-                              onPressed: () {},
+                              onPressed: _showEmojiPicker, // Emoji berfungsi
                             ),
                             Expanded(
                               child: TextField(
@@ -280,11 +306,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.attach_file, color: Colors.grey),
-                              onPressed: _isUploading ? null : _sendImage,
+                              onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery),
                             ),
                             IconButton(
                               icon: const Icon(Icons.camera_alt_outlined, color: Colors.grey),
-                              onPressed: () {},
+                              onPressed: _isUploading ? null : () => _pickImage(ImageSource.camera), // Kamera berfungsi
                             ),
                           ],
                         ),

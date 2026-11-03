@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'settings_screen.dart';
@@ -20,13 +21,27 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen> {
   int _currentIndex = 0;
+  String _activeFilter = 'Semua';
+  String _searchQuery = "";
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+
+  void _showFeatureDialog(String title) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: const Text('Fitur ini sedang dalam pengembangan dan akan segera hadir di pembaruan berikutnya.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup')),
+        ],
+      ),
+    );
+  }
 
   void _showPopupMenu() {
     showModalBottomSheet(
       context: context,
       builder: (context) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -43,17 +58,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ListTile(
                 leading: const Icon(Icons.people),
                 title: const Text('Komunitas baru'),
-                onTap: () => Navigator.pop(context),
+                onTap: () { Navigator.pop(context); _showFeatureDialog('Komunitas Baru'); },
               ),
               ListTile(
                 leading: const Icon(Icons.cell_tower),
                 title: const Text('Daftar siaran'),
-                onTap: () => Navigator.pop(context),
+                onTap: () { Navigator.pop(context); _showFeatureDialog('Daftar Siaran'); },
               ),
               ListTile(
                 leading: const Icon(Icons.devices),
                 title: const Text('Perangkat tertaut'),
-                onTap: () => Navigator.pop(context),
+                onTap: () { Navigator.pop(context); _showFeatureDialog('Perangkat Tertaut'); },
               ),
               ListTile(
                 leading: const Icon(Icons.star),
@@ -68,13 +83,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 title: const Text('Baca semua'),
                 onTap: () async {
                   Navigator.pop(context);
-                  // Logika Baca Semua (Mark As Read)
                   final rooms = await FirebaseFirestore.instance.collection('rooms').where('members', arrayContains: myUid).get();
                   for(var room in rooms.docs) {
                     final msgs = await room.reference.collection('messages').where('status', isEqualTo: 'sent').get();
-                    for (var m in msgs.docs) {
-                      m.reference.update({'status': 'read'});
-                    }
+                    for (var m in msgs.docs) { m.reference.update({'status': 'read'}); }
                   }
                   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua chat ditandai telah dibaca')));
                 },
@@ -90,10 +102,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ListTile(
                 leading: const Icon(Icons.swap_horiz),
                 title: const Text('Alihkan akun'),
-                onTap: () {
-                  Navigator.pop(context);
-                  FirebaseAuth.instance.signOut();
-                },
+                onTap: () { Navigator.pop(context); FirebaseAuth.instance.signOut(); },
               ),
             ],
           ),
@@ -121,10 +130,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     : Text('Panggilan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
         actions: [
           if (_currentIndex == 0) ...[
-            IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.white), onPressed: () {}),
+            IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.white), onPressed: () => _showFeatureDialog('Kamera Cepat')),
             IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: _showPopupMenu),
           ] else ...[
-            IconButton(icon: const Icon(Icons.search, color: Colors.white), onPressed: () {}),
+            IconButton(icon: const Icon(Icons.search, color: Colors.white), onPressed: () => _showFeatureDialog('Pencarian Global')),
             IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: () {}),
           ]
         ],
@@ -133,7 +142,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         index: _currentIndex,
         children: [
           _buildChatsTab(isDark),
-          const StatusScreen(), // Tab Pembaruan sekarang menampilkan Status
+          const StatusScreen(),
           _buildCommunitiesTab(isDark),
           _buildCallsTab(isDark),
         ],
@@ -172,6 +181,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             height: 45,
             decoration: BoxDecoration(color: isDark ? const Color(0xFF2A3942) : Colors.grey[200], borderRadius: BorderRadius.circular(30)),
             child: TextField(
+              onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
               style: TextStyle(color: textColor),
               decoration: InputDecoration(
                 hintText: 'Tanya Meta AI atau cari',
@@ -188,7 +198,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: ['Semua', 'Belum dibaca', 'Favorit', 'Grup'].map((filter) {
-              final isSelected = filter == 'Semua';
+              final isSelected = _activeFilter == filter;
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: ChoiceChip(
@@ -197,7 +207,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   selectedColor: isDark ? const Color(0xFF005C4B) : const Color(0xFFD9FDD3),
                   labelStyle: TextStyle(color: isSelected ? (isDark ? Colors.white : const Color(0xFF075E54)) : Colors.grey),
                   backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.white,
-                  onSelected: (val) {},
+                  onSelected: (val) => setState(() => _activeFilter = filter),
                 ),
               );
             }).toList(),
@@ -210,10 +220,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               
-              final allRooms = snapshot.data!.docs.where((doc) {
+              var allRooms = snapshot.data!.docs.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid));
               }).toList();
+
+              // Logika Filter
+              if (_activeFilter == 'Grup') {
+                allRooms = allRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
+              } else if (_activeFilter == 'Belum dibaca') {
+                // Simulasi filter belum dibaca (bisa disesuaikan dengan status read)
+                allRooms = allRooms.where((doc) => true).toList(); 
+              }
 
               allRooms.sort((a, b) {
                 Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now();
@@ -221,15 +239,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 return bTime.compareTo(aTime);
               });
 
-              List<Widget> tiles = [
-                ListTile(
-                  leading: const CircleAvatar(radius: 26, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11')),
-                  title: Text('Ruang Global', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                  subtitle: Text('Ngobrol dengan semua orang', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-                  trailing: const Text('Sekarang', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen(roomId: 'global', roomName: 'Ruang Global'))),
-                )
-              ];
+              List<Widget> tiles = [];
 
               for (var doc in allRooms) {
                 final data = doc.data() as Map<String, dynamic>;
@@ -253,6 +263,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         }
                       }
 
+                      // Logika Pencarian
+                      if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) {
+                        return const SizedBox.shrink();
+                      }
+
                       return ListTile(
                         leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')),
                         title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
@@ -263,11 +278,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     },
                   ));
                 } else {
+                  final groupName = data['name'] ?? 'Grup';
+                  if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) {
+                    continue;
+                  }
+
                   tiles.add(ListTile(
                     leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
-                    title: Text(data['name'] ?? 'Grup', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+                    title: Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
                     trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: data['name'] ?? 'Grup'))),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName))),
                   ));
                 }
               }
@@ -297,6 +317,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
             Text('Tetap terhubung dengan komunitas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor), textAlign: TextAlign.center),
             const SizedBox(height: 12),
             const Text('Komunitas menyatukan anggota dalam grup berdasarkan topik dan memudahkan untuk menerima pengumuman admin.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => _showFeatureDialog('Mulai Komunitas'),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
+              child: const Text('Mulai komunitas Anda'),
+            )
           ],
         ),
       ),
@@ -311,10 +337,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildCallAction(Icons.call, 'Telepon', isDark),
-            _buildCallAction(Icons.calendar_today, 'Jadwal', isDark),
-            _buildCallAction(Icons.dialpad, 'Keypad', isDark),
-            _buildCallAction(Icons.favorite_border, 'Favorit', isDark),
+            _buildCallAction(Icons.call, 'Telepon', isDark, () async {
+              final Uri launchUri = Uri(scheme: 'tel', path: '');
+              await launchUrl(launchUri);
+            }),
+            _buildCallAction(Icons.calendar_today, 'Jadwal', isDark, () => _showFeatureDialog('Jadwal Panggilan')),
+            _buildCallAction(Icons.dialpad, 'Keypad', isDark, () => _showFeatureDialog('Keypad Panggilan')),
+            _buildCallAction(Icons.favorite_border, 'Favorit', isDark, () => _showFeatureDialog('Kontak Favorit')),
           ],
         ),
         const SizedBox(height: 24),
@@ -333,17 +362,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  Widget _buildCallAction(IconData icon, String label, bool isDark) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 30,
-          backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],
-          child: Icon(icon, color: isDark ? Colors.white : Colors.black, size: 28),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: TextStyle(color: isDark ? Colors.grey : Colors.black87, fontSize: 13)),
-      ],
+  Widget _buildCallAction(IconData icon, String label, bool isDark, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(50),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],
+            child: Icon(icon, color: isDark ? Colors.white : Colors.black, size: 28),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: TextStyle(color: isDark ? Colors.grey : Colors.black87, fontSize: 13)),
+        ],
+      ),
     );
   }
 }

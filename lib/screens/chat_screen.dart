@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
+import 'group_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -214,7 +215,9 @@ class _ChatScreenState extends State<ChatScreen> {
             foregroundColor: Colors.white,
             title: InkWell(
               onTap: () {
-                if (_otherUid.isNotEmpty) {
+                if (_roomType == 'group' || _roomType == 'channel') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName)));
+                } else if (_otherUid.isNotEmpty) {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid)));
                 }
               },

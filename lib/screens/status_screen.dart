@@ -1,9 +1,10 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
@@ -13,79 +14,177 @@ class StatusScreen extends StatefulWidget {
 }
 
 class _StatusScreenState extends State<StatusScreen> {
+  final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   bool _isUploading = false;
 
   Future<void> _uploadStatus() async {
     final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 20);
     if (image == null) return;
 
     setState(() => _isUploading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      final ref = FirebaseStorage.instance.ref().child('statuses/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await ref.putFile(File(image.path));
-      final url = await ref.getDownloadURL();
+      final bytes = await File(image.path).readAsBytes();
+      final base64String = base64Encode(bytes);
 
       await FirebaseFirestore.instance.collection('statuses').add({
-        'userId': user?.uid,
-        'userName': user?.displayName ?? 'User',
-        'imageUrl': url,
+        'uid': myUid,
+        'userName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+        'photoBase64': base64String,
         'timestamp': FieldValue.serverTimestamp(),
+        'views': [], // Array untuk menyimpan UID yang melihat
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status berhasil diunggah!')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status diunggah!')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
     } finally {
-      setState(() => _isUploading = false);
+      if (mounted) setState(() => _isUploading = false);
     }
+  }
+
+  void _viewStatus(DocumentSnapshot doc, Map<String, dynamic> data) async {
+    // Tandai sudah dilihat (jika belum)
+    final views = (data['views'] as List?) ?? [];
+    if (!views.contains(myUid)) {
+      await doc.reference.update({
+        'views': FieldValue.arrayUnion([myUid])
+      });
+    }
+
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: Text(data['userName'] ?? 'Status'),
+            actions: [
+              if (data['uid'] == myUid)
+                IconButton(
+                  icon: const Icon(Icons.remove_red_eye),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Dilihat oleh'),
+                        content: Text('${views.length} orang telah melihat status ini.'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+                      ),
+                    );
+                  },
+                )
+            ],
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.memory(base64Decode(data['photoBase64'])),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Status'),
-        actions: [
-          IconButton(icon: const Icon(Icons.camera_alt), onPressed: _uploadStatus),
-        ],
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('statuses').orderBy('timestamp', descending: true).snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final docs = snapshot.data!.docs;
-          if (docs.isEmpty) return const Center(child: Text('Belum ada status hari ini.'));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black;
 
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFF00A884),
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('Status', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
+          ),
+          
+          // Status Saya (Tombol Tambah)
+          ListTile(
+            leading: Stack(
+              children: [
+                CircleAvatar(
                   radius: 24,
-                  child: Text(data['userName'][0].toUpperCase(), style: const TextStyle(color: Colors.white)),
+                  backgroundColor: Colors.grey[300],
+                  child: const Icon(Icons.person, color: Colors.white),
                 ),
-                title: Text(data['userName']),
-                subtitle: const Text('Baru saja'),
-                onTap: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => Dialog(
-                      child: Image.network(data['imageUrl'], fit: BoxFit.cover),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(color: Color(0xFF25D366), shape: BoxShape.circle),
+                    child: const Icon(Icons.add, size: 16, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            title: Text('Status Saya', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+            subtitle: Text('Ketuk untuk menambah pembaruan status', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+            onTap: _isUploading ? null : _uploadStatus,
+          ),
+          const Divider(),
+          
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('Pembaruan Terbaru', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.grey : Colors.black54)),
+          ),
+
+          // Daftar Status Orang Lain
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('statuses').orderBy('timestamp', descending: true).snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                
+                final now = DateTime.now();
+                final docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  if (data['uid'] == myUid) return false; // Jangan tampilkan status sendiri
+                  
+                  // Cek 24 Jam
+                  final timestamp = (data['timestamp'] as Timestamp).toDate();
+                  return now.difference(timestamp).inHours < 24;
+                }).toList();
+
+                if (docs.isEmpty) return const Center(child: Text('Belum ada pembaruan status.', style: TextStyle(color: Colors.grey)));
+
+                return ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final isViewed = (data['views'] as List).contains(myUid);
+                    final time = DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate());
+
+                    return ListTile(
+                      leading: CircleAvatar(
+                        radius: 26,
+                        backgroundColor: isViewed ? Colors.grey : const Color(0xFF25D366),
+                        child: CircleAvatar(
+                          radius: 23,
+                          backgroundImage: MemoryImage(base64Decode(data['photoBase64'])),
+                        ),
+                      ),
+                      title: Text(data['userName'] ?? 'User', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+                      subtitle: Text(time, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+                      onTap: () => _viewStatus(doc, data),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _isUploading ? null : _uploadStatus,
-        backgroundColor: const Color(0xFF00A884),
-        child: _isUploading ? const CircularProgressIndicator(color: Colors.white) : const Icon(Icons.add, color: Colors.white),
+        backgroundColor: const Color(0xFF25D366),
+        child: _isUploading ? const CircularProgressIndicator(color: Colors.white) : const Icon(Icons.camera_alt, color: Colors.white),
       ),
     );
   }

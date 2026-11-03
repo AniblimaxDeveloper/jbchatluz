@@ -26,13 +26,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String _activeFilter = 'Semua';
   String _searchQuery = "";
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
-  
   bool _isLockedFolderOpen = false;
-  bool _isArchiveFolderOpen = false; // State Folder Arsip
+  bool _isArchiveFolderOpen = false;
 
-  void _showFeatureDialog(String title) {
-    showDialog(context: context, builder: (context) => AlertDialog(title: Text(title), content: const Text('Fitur ini akan segera hadir.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
-  }
+  void _showFeatureDialog(String title) { showDialog(context: context, builder: (context) => AlertDialog(title: Text(title), content: const Text('Fitur ini akan segera hadir.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
 
   Future<bool> _verifyPin() async {
     final prefs = await SharedPreferences.getInstance();
@@ -54,7 +51,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   void _showChatOptions(String roomId, bool isArchived, bool isPinned, bool isLocked) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      ListTile(leading: Icon(isLocked ? Icons.lock_open : Icons.lock), title: Text(isLocked ? 'Buka Kunci Obrolan' : 'Kunci Obrolan (Sembunyikan)'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isLocked': !isLocked}); if (!isLocked) _isLockedFolderOpen = false; }),
+      ListTile(leading: Icon(isLocked ? Icons.lock_open : Icons.lock), title: Text(isLocked ? 'Buka Kunci Obrolan' : 'Kunci Obrolan'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isLocked': !isLocked}); if (!isLocked) _isLockedFolderOpen = false; }),
       ListTile(leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin), title: Text(isPinned ? 'Lepas Sematan' : 'Sematkan Chat'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isPinned': !isPinned}); }),
       ListTile(leading: Icon(isArchived ? Icons.unarchive : Icons.archive), title: Text(isArchived ? 'Keluarkan dari Arsip' : 'Arsipkan Chat'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isArchived': !isArchived}); }),
       ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus Chat', style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).delete(); }),
@@ -68,30 +65,71 @@ class _ChatListScreenState extends State<ChatListScreen> {
       backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54),
-        title: Text(_currentIndex == 0 ? 'JBchatluz' : _currentIndex == 1 ? 'Pembaruan' : _currentIndex == 2 ? 'Komunitas' : 'Panggilan', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
+        title: Text(_currentIndex == 0 ? 'JBchatluz' : _currentIndex == 1 ? 'Pembaruan' : _currentIndex == 2 ? 'Komunitas' : _currentIndex == 3 ? 'Panggilan' : 'Profil', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white)),
         actions: [
           if (_currentIndex == 0) ...[
             IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.white), onPressed: () {}),
             IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: _showPopupMenu),
+          ] else if (_currentIndex == 4) ...[
+            IconButton(icon: const Icon(Icons.edit, color: Colors.white), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())); }),
           ] else ...[
             IconButton(icon: const Icon(Icons.search, color: Colors.white), onPressed: () {}),
           ]
         ],
       ),
-      body: IndexedStack(index: _currentIndex, children: [_buildChatsTab(isDark), const StatusScreen(), _buildCommunitiesTab(isDark), _buildCallsTab(isDark)]),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.white,
-        selectedItemColor: isDark ? const Color(0xFF25D366) : const Color(0xFF075E54),
-        unselectedItemColor: Colors.grey, currentIndex: _currentIndex, onTap: (index) => setState(() => _currentIndex = index),
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: 'Chat'),
-          BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), activeIcon: Icon(Icons.circle), label: 'Pembaruan'),
-          BottomNavigationBarItem(icon: Icon(Icons.groups_outlined), activeIcon: Icon(Icons.groups), label: 'Komunitas'),
-          BottomNavigationBarItem(icon: Icon(Icons.call_outlined), activeIcon: Icon(Icons.call), label: 'Panggilan'),
-        ],
+      body: IndexedStack(index: _currentIndex, children: [_buildChatsTab(isDark), const StatusScreen(), _buildCommunitiesTab(isDark), _buildCallsTab(isDark), _buildProfileTab(isDark)]),
+      
+      // LIQUID NAVIGATION BAR
+      bottomNavigationBar: Container(
+        height: 65,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1F2C34) : Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -2))],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildNavItem(0, Icons.chat_bubble_outline, Icons.chat_bubble, 'Chat', isDark),
+            _buildNavItem(1, Icons.circle_outlined, Icons.circle, 'Pembaruan', isDark),
+            _buildNavItem(2, Icons.groups_outlined, Icons.groups, 'Komunitas', isDark),
+            _buildNavItem(3, Icons.call_outlined, Icons.call, 'Panggilan', isDark),
+            _buildNavItem(4, Icons.person_outline, Icons.person, 'Profil', isDark),
+          ],
+        ),
       ),
       floatingActionButton: _currentIndex == 0 ? FloatingActionButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen())), backgroundColor: const Color(0xFF25D366), child: const Icon(Icons.add_comment, color: Colors.white)) : null,
+    );
+  }
+
+  // LIQUID NAVIGATION ITEM ANIMATION
+  Widget _buildNavItem(int index, IconData icon, IconData activeIcon, String label, bool isDark) {
+    final isSelected = _currentIndex == index;
+    final activeColor = isDark ? const Color(0xFF25D366) : const Color(0xFF075E54);
+    final inactiveColor = Colors.grey;
+
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutQuint,
+        padding: EdgeInsets.symmetric(horizontal: isSelected ? 16 : 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(isSelected ? activeIcon : icon, color: isSelected ? activeColor : inactiveColor, size: 24),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              child: isSelected 
+                ? Padding(padding: const EdgeInsets.only(top: 2), child: Text(label, style: TextStyle(color: activeColor, fontSize: 10, fontWeight: FontWeight.bold)))
+                : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -108,53 +146,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               var allRooms = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid)); }).toList();
-              
               final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
               final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true && (doc.data() as Map)['isLocked'] != true).toList();
               var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true && (doc.data() as Map)['isArchived'] != true).toList();
-
-              if (_activeFilter == 'Grup') {
-                activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
-              }
-
+              if (_activeFilter == 'Grup') { activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList(); }
               activeRooms.sort((a, b) { final aPinned = (a.data() as Map)['isPinned'] == true; final bPinned = (b.data() as Map)['isPinned'] == true; if (aPinned && !bPinned) return -1; if (!aPinned && bPinned) return 1; Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now(); Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now(); return bTime.compareTo(aTime); });
-              
               List<Widget> tiles = [];
-              
-              // FOLDER ARSIP
-              if (archivedRooms.isNotEmpty) {
-                tiles.add(ListTile(
-                  leading: const Icon(Icons.archive, color: Colors.grey),
-                  title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                  trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                  onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen),
-                ));
-                if (_isArchiveFolderOpen) {
-                  for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); }
-                }
-              }
-
-              // FOLDER TERKUNCI
-              if (lockedRooms.isNotEmpty) {
-                tiles.add(ListTile(
-                  leading: const Icon(Icons.lock, color: Color(0xFF25D366)),
-                  title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                  trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)),
-                  onTap: () async {
-                    if (!_isLockedFolderOpen) {
-                      final unlocked = await _verifyPin();
-                      if (unlocked) setState(() => _isLockedFolderOpen = true);
-                    } else { setState(() => _isLockedFolderOpen = false); }
-                  },
-                ));
-                if (_isLockedFolderOpen) {
-                  for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); }
-                }
-              }
-
-              // CHAT AKTIF
+              if (archivedRooms.isNotEmpty) { tiles.add(ListTile(leading: const Icon(Icons.archive, color: Colors.grey), title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)), onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen))); if (_isArchiveFolderOpen) { for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); } } }
+              if (lockedRooms.isNotEmpty) { tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } } }
               for (var doc in activeRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); }
-
               return ListView(children: tiles);
             },
           ),
@@ -167,10 +167,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final data = doc.data() as Map<String, dynamic>;
     final isPrivate = data['type'] == 'private'; final isPinned = data['isPinned'] == true; final isLocked = data['isLocked'] == true; final isArchived = data['isArchived'] == true;
     final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
-    
-    // Sembunyikan chat arsip jika tidak dalam folder arsip
     if (isArchived && !showArchived) return;
-
     if (isPrivate) {
       String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
       tiles.add(FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(), builder: (context, userSnap) {
@@ -194,58 +191,54 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final textColor = isDark ? Colors.white : Colors.black;
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildCallAction(Icons.call, 'Telepon', isDark, () async { await launchUrl(Uri(scheme: 'tel', path: '')); }),
-              _buildCallAction(Icons.calendar_today, 'Jadwal', isDark, () => _showFeatureDialog('Jadwal')),
-              _buildCallAction(Icons.dialpad, 'Keypad', isDark, () => _showFeatureDialog('Keypad')),
-              _buildCallAction(Icons.favorite_border, 'Favorit', isDark, () => _showFeatureDialog('Favorit')),
-            ],
-          ),
-        ),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Align(alignment: Alignment.centerLeft, child: Text('Terbaru', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)))),
-        const SizedBox(height: 8),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('call_logs').where('callerId', isEqualTo: myUid).orderBy('timestamp', descending: true).snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              final docs = snapshot.data!.docs;
-              if (docs.isEmpty) return const Center(child: Text('Belum ada panggilan terbaru', style: TextStyle(color: Colors.grey)));
-              return ListView.builder(
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
-                  final isVideo = data['type'] == 'video';
-                  final time = data['timestamp'] != null ? DateFormat('dd/MM HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-                  final receiverId = data['receiverId'];
-
-                  return FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance.collection('users').doc(receiverId).get(),
-                    builder: (context, userSnap) {
-                      String name = 'Pengguna';
-                      if (userSnap.hasData && userSnap.data!.exists) name = userSnap.data!['displayName'] ?? 'Pengguna';
-                      return ListTile(
-                        leading: CircleAvatar(backgroundColor: Colors.grey, child: Icon(isVideo ? Icons.videocam : Icons.call, color: Colors.white)),
-                        title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                        subtitle: Row(children: [const Icon(Icons.call_made, size: 14, color: Colors.green), const SizedBox(width: 4), Text(time, style: const TextStyle(color: Colors.grey))]),
-                        trailing: Icon(isVideo ? Icons.videocam : Icons.call, color: const Color(0xFF25D366)),
-                      );
-                    },
-                  );
-                },
-              );
-            },
-          ),
-        ),
+        Padding(padding: const EdgeInsets.all(16), child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [_buildCallAction(Icons.call, 'Telepon', isDark, () async { await launchUrl(Uri(scheme: 'tel', path: '')); }), _buildCallAction(Icons.calendar_today, 'Jadwal', isDark, () => _showFeatureDialog('Jadwal')), _buildCallAction(Icons.dialpad, 'Keypad', isDark, () => _showFeatureDialog('Keypad')), _buildCallAction(Icons.favorite_border, 'Favorit', isDark, () => _showFeatureDialog('Favorit'))])),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Align(alignment: Alignment.centerLeft, child: Text('Terbaru', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)))), const SizedBox(height: 8),
+        Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('call_logs').where('callerId', isEqualTo: myUid).orderBy('timestamp', descending: true).snapshots(), builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final docs = snapshot.data!.docs;
+          if (docs.isEmpty) return const Center(child: Text('Belum ada panggilan terbaru', style: TextStyle(color: Colors.grey)));
+          return ListView.builder(itemCount: docs.length, itemBuilder: (context, index) {
+            final data = docs[index].data() as Map<String, dynamic>; final isVideo = data['type'] == 'video'; final time = data['timestamp'] != null ? DateFormat('dd/MM HH:mm').format((data['timestamp'] as Timestamp).toDate()) : ''; final receiverId = data['receiverId'];
+            return FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(receiverId).get(), builder: (context, userSnap) {
+              String name = 'Pengguna'; if (userSnap.hasData && userSnap.data!.exists) name = userSnap.data!['displayName'] ?? 'Pengguna';
+              return ListTile(leading: CircleAvatar(backgroundColor: Colors.grey, child: Icon(isVideo ? Icons.videocam : Icons.call, color: Colors.white)), title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), subtitle: Row(children: [const Icon(Icons.call_made, size: 14, color: Colors.green), const SizedBox(width: 4), Text(time, style: const TextStyle(color: Colors.grey))]), trailing: Icon(isVideo ? Icons.videocam : Icons.call, color: const Color(0xFF25D366)));
+            });
+          });
+        })),
       ],
     );
   }
 
-  Widget _buildCallAction(IconData icon, String label, bool isDark, VoidCallback onTap) {
-    return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(50), child: Column(children: [CircleAvatar(radius: 30, backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.grey[100], child: Icon(icon, color: isDark ? Colors.white : Colors.black, size: 28)), const SizedBox(height: 8), Text(label, style: TextStyle(color: isDark ? Colors.grey : Colors.black87, fontSize: 13))]));
+  Widget _buildCallAction(IconData icon, String label, bool isDark, VoidCallback onTap) { return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(50), child: Column(children: [CircleAvatar(radius: 30, backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.grey[100], child: Icon(icon, color: isDark ? Colors.white : Colors.black, size: 28)), const SizedBox(height: 8), Text(label, style: TextStyle(color: isDark ? Colors.grey : Colors.black87, fontSize: 13))])); }
+
+  Widget _buildProfileTab(bool isDark) {
+    final textColor = isDark ? Colors.white : Colors.black;
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(myUid).get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final data = snapshot.data!.data() as Map<String, dynamic>;
+        ImageProvider? avatar;
+        if (data['photoBase64'] != null && data['photoBase64'].toString().isNotEmpty) avatar = MemoryImage(base64Decode(data['photoBase64']));
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const SizedBox(height: 20),
+            Center(child: CircleAvatar(radius: 60, backgroundColor: Colors.grey, backgroundImage: avatar, child: avatar == null ? const Icon(Icons.person, size: 60, color: Colors.white) : null)),
+            const SizedBox(height: 16),
+            Center(child: Text(data['displayName'] ?? 'User', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor))),
+            Center(child: Text(data['email'] ?? '', style: const TextStyle(fontSize: 16, color: Colors.grey))),
+            const SizedBox(height: 24),
+            ListTile(leading: const Icon(Icons.info_outline), title: Text('Tentang', style: TextStyle(color: textColor)), subtitle: Text(data['about'] ?? 'Tersedia', style: const TextStyle(color: Colors.grey))),
+            ListTile(leading: const Icon(Icons.alternate_email), title: Text('JBchatluz ID', style: TextStyle(color: textColor)), subtitle: Text(data['jbId'] ?? 'Error', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold))),
+            const Divider(),
+            ListTile(leading: const Icon(Icons.settings), title: Text('Pengaturan', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+            ListTile(leading: const Icon(Icons.edit), title: Text('Edit Profil', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()))),
+            ListTile(leading: const Icon(Icons.logout, color: Colors.red), title: const Text('Keluar', style: TextStyle(color: Colors.red)), onTap: () => FirebaseAuth.instance.signOut()),
+          ],
+        );
+      },
+    );
   }
 }

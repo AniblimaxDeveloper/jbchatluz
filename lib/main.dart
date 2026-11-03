@@ -37,12 +37,7 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
   bool _isCheckingLock = true;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _checkAppLock();
-  }
-
+  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _checkAppLock(); }
   @override
   void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
 
@@ -50,16 +45,29 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
-    // PERBAIKAN: Cek apakah Mode Hantu aktif
     final prefs = await SharedPreferences.getInstance();
+    
+    // Cek MOD
     final isGhostMode = prefs.getBool('mod_hide_online') ?? false;
-    if (isGhostMode) return;
+    final isAlwaysOnline = prefs.getBool('mod_always_online') ?? false;
+    final isFreezeLastSeen = prefs.getBool('mod_freeze_lastseen') ?? false;
+
+    if (isAlwaysOnline) {
+      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
+      return;
+    }
+
+    if (isGhostMode) {
+      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false}).catchError((e) {});
+      if (!isFreezeLastSeen) FirebaseFirestore.instance.collection('users').doc(user.uid).update({'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
+      return;
+    }
 
     if (state == AppLifecycleState.resumed) {
       FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
     } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
+      FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false}).catchError((e) {});
+      if (!isFreezeLastSeen) FirebaseFirestore.instance.collection('users').doc(user.uid).update({'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {});
     }
   }
 

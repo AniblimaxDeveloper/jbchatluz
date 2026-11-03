@@ -15,6 +15,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _autoReplyController = TextEditingController();
   bool _isAutoReplyOn = false;
   String _notificationSound = "Default";
+  bool _isDarkMode = false;
+
+  // MOD States
+  bool _antiDelete = false;
+  bool _hideTyping = false;
+  bool _alwaysOnline = false;
+  bool _freezeLastSeen = false;
+  bool _hideOnline = false;
+  bool _hideBlueTick = false;
 
   @override
   void initState() {
@@ -25,46 +34,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
+      _isDarkMode = prefs.getBool('darkMode') ?? false;
       _isAutoReplyOn = prefs.getBool('mod_auto_reply') ?? false;
-      _autoReplyController.text = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk, akan membalas nanti.';
+      _autoReplyController.text = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
       _notificationSound = prefs.getString('notification_sound') ?? 'Default';
+      
+      _antiDelete = prefs.getBool('mod_anti_delete') ?? false;
+      _hideTyping = prefs.getBool('mod_hide_typing') ?? false;
+      _alwaysOnline = prefs.getBool('mod_always_online') ?? false;
+      _freezeLastSeen = prefs.getBool('mod_freeze_lastseen') ?? false;
+      _hideOnline = prefs.getBool('mod_hide_online') ?? false;
+      _hideBlueTick = prefs.getBool('mod_hide_tick') ?? false;
     });
   }
 
-  void _setPin() { /* Kode PIN sama seperti sebelumnya */ }
-  void _removePin() async { /* Kode Hapus PIN sama */ }
-  void _pickWallpaper() async { /* Kode Wallpaper sama */ }
-  void _showFontPicker() { /* Kode Font sama */ }
-  void _showBubbleColorPicker() { /* Kode Bubble Warna sama */ }
+  void _setPin() {
+    final pinController = TextEditingController();
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Atur PIN"), content: TextField(controller: pinController, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: "PIN Baru")), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")), TextButton(onPressed: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_pin', pinController.text.trim()); if (context.mounted) Navigator.pop(context); }, child: const Text("Simpan"))]));
+  }
+
+  void _removePin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('app_pin');
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN dihapus.")));
+  }
+
+  void _pickWallpaper() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
+    if (image != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('wallpaper_path', image.path);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah.")));
+    }
+  }
+
+  void _showFontPicker() {
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Pilih Font"), content: Column(mainAxisSize: MainAxisSize.min, children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) => RadioListTile<String>(title: Text(font), value: font, groupValue: fontNotifier.value, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_font', val); fontNotifier.value = val; if (context.mounted) Navigator.pop(context); } })).toList())));
+  }
+
+  void _showBubbleColorPicker() {
+    final colors = [const Color(0xFFD9FDD3), const Color(0xFFD2E8FF), const Color(0xFFFFE4E1), const Color(0xFFF0E6FF)];
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Warna Bubble Chat"), content: Wrap(spacing: 10, children: colors.map((color) => GestureDetector(onTap: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setInt('bubble_color', color.value); bubbleColorNotifier.value = color; if (context.mounted) Navigator.pop(context); }, child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey))))).toList())));
+  }
 
   void _showNotificationSoundPicker() {
-    final sounds = ["Default", "Ping", "Pop", "Ding", "Chime"];
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Nada Notifikasi"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: sounds.map((sound) {
-              return RadioListTile<String>(
-                title: Text(sound),
-                value: sound,
-                groupValue: _notificationSound,
-                onChanged: (val) async {
-                  if (val != null) {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setString('notification_sound', val);
-                    setState(() => _notificationSound = val);
-                    if (context.mounted) Navigator.pop(context);
-                  }
-                },
-              );
-            }).toList(),
-          ),
-        );
-      },
-    );
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Nada Notifikasi"), content: Column(mainAxisSize: MainAxisSize.min, children: ["Default", "Ping", "Pop", "Ding"].map((sound) => RadioListTile<String>(title: Text(sound), value: sound, groupValue: _notificationSound, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('notification_sound', val); setState(() => _notificationSound = val); if (context.mounted) Navigator.pop(context); } })).toList())));
   }
 
   @override
@@ -76,86 +91,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Pengaturan MOD'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
       body: ListView(
         children: [
-          SwitchListTile(
-            secondary: const Icon(Icons.dark_mode),
-            title: Text('Mode Gelap', style: TextStyle(color: textColor)),
-            value: isDark, activeColor: const Color(0xFF25D366),
-            onChanged: (value) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('darkMode', value);
-              themeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.palette),
-            title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showBubbleColorPicker,
-          ),
-          ListTile(
-            leading: const Icon(Icons.font_download),
-            title: Text('Ganti Font', style: TextStyle(color: textColor)),
-            subtitle: Text('Font: ${fontNotifier.value}'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showFontPicker,
-          ),
-          ListTile(
-            leading: const Icon(Icons.wallpaper),
-            title: Text('Wallpaper Chat', style: TextStyle(color: textColor)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _pickWallpaper,
-          ),
+          SwitchListTile(secondary: const Icon(Icons.dark_mode), title: Text('Mode Gelap', style: TextStyle(color: textColor)), value: _isDarkMode, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('darkMode', val); themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light; setState(() => _isDarkMode = val); }),
+          ListTile(leading: const Icon(Icons.palette), title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _showBubbleColorPicker),
+          ListTile(leading: const Icon(Icons.font_download), title: Text('Ganti Font', style: TextStyle(color: textColor)), subtitle: Text('Font: ${fontNotifier.value}'), trailing: const Icon(Icons.chevron_right), onTap: _showFontPicker),
+          ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
+          ListTile(leading: const Icon(Icons.music_note), title: Text('Nada Notifikasi', style: TextStyle(color: textColor)), subtitle: Text(_notificationSound), trailing: const Icon(Icons.chevron_right), onTap: _showNotificationSoundPicker),
+          
           const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('Notifikasi', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.music_note),
-            title: Text('Nada Pesan', style: TextStyle(color: textColor)),
-            subtitle: Text(_notificationSound),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showNotificationSoundPicker,
-          ),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('MOD Unlimited (Eksklusif)', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.restore_from_trash, color: Colors.purple),
-            title: Text('Anti-Delete (Simpan Pesan Dihapus)', style: TextStyle(color: textColor)),
-            subtitle: const Text('Pesan yang dihapus orang lain akan tetap terlihat'),
-            value: isDark ? false : (ModalRoute.of(context)?.settings.name == 'anti' ? true : null) ?? false,
-            activeColor: const Color(0xFF25D366),
-            onChanged: (val) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('mod_anti_delete', val);
-              setState(() {});
-            },
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.smart_toy, color: Colors.blue),
-            title: Text('Auto-Reply (Robot)', style: TextStyle(color: textColor)),
-            subtitle: const Text('Membalas pesan masuk secara otomatis'),
-            value: _isAutoReplyOn, activeColor: const Color(0xFF25D366),
-            onChanged: (val) async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('mod_auto_reply', val);
-              setState(() => _isAutoReplyOn = val);
-            },
-          ),
-          if (_isAutoReplyOn)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: TextField(
-                controller: _autoReplyController, style: TextStyle(color: textColor),
-                decoration: InputDecoration(labelText: 'Pesan Auto-Reply', border: const OutlineInputBorder(), suffixIcon: IconButton(icon: const Icon(Icons.check, color: Color(0xFF25D366)), onPressed: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('mod_auto_reply_msg', _autoReplyController.text); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disimpan'))); })),
-              ),
-            ),
-          const Divider(),
+          Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.lock), title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _setPin),
           ListTile(leading: const Icon(Icons.lock_open, color: Colors.red), title: const Text('Hapus PIN', style: TextStyle(color: Colors.red)), onTap: _removePin),
+          SwitchListTile(secondary: const Icon(Icons.done_all, color: Colors.blue), title: Text('Sembunyikan Centang Biru', style: TextStyle(color: textColor)), value: _hideBlueTick, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_tick', val); setState(() => _hideBlueTick = val); }),
+
+          const Divider(),
+          Padding(padding: const EdgeInsets.all(16), child: Text('MOD Unlimited (Eksklusif)', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          SwitchListTile(secondary: const Icon(Icons.restore_from_trash, color: Colors.purple), title: Text('Anti-Delete', style: TextStyle(color: textColor)), subtitle: const Text('Pesan yang dihapus akan tetap terlihat'), value: _antiDelete, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_anti_delete', val); setState(() => _antiDelete = val); }),
+          SwitchListTile(secondary: const Icon(Icons.keyboard_hide, color: Colors.orange), title: Text('Sembunyikan "Sedang Mengetik"', style: TextStyle(color: textColor)), value: _hideTyping, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_typing', val); setState(() => _hideTyping = val); }),
+          SwitchListTile(secondary: const Icon(Icons.public, color: Colors.green), title: Text('Selalu Online (24 Jam)', style: TextStyle(color: textColor)), value: _alwaysOnline, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_always_online', val); setState(() => _alwaysOnline = val); }),
+          SwitchListTile(secondary: const Icon(Icons.ac_unit, color: Colors.blue), title: Text('Bekukan "Terakhir Dilihat"', style: TextStyle(color: textColor)), value: _freezeLastSeen, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_freeze_lastseen', val); setState(() => _freezeLastSeen = val); }),
+          SwitchListTile(secondary: const Icon(Icons.visibility_off, color: Colors.red), title: Text('Sembunyikan Status Online', style: TextStyle(color: textColor)), value: _hideOnline, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_online', val); setState(() => _hideOnline = val); }),
+
+          const Divider(),
+          SwitchListTile(secondary: const Icon(Icons.smart_toy, color: Colors.blue), title: Text('Auto-Reply (Robot)', style: TextStyle(color: textColor)), value: _isAutoReplyOn, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_auto_reply', val); setState(() => _isAutoReplyOn = val); }),
+          if (_isAutoReplyOn) Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: TextField(controller: _autoReplyController, style: TextStyle(color: textColor), decoration: InputDecoration(labelText: 'Pesan Auto-Reply', border: const OutlineInputBorder(), suffixIcon: IconButton(icon: const Icon(Icons.check, color: Color(0xFF25D366)), onPressed: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('mod_auto_reply_msg', _autoReplyController.text); if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disimpan'))); })))),
         ],
       ),
     );

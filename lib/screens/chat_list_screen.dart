@@ -7,7 +7,7 @@ import 'chat_screen.dart';
 import 'profile_screen.dart';
 import 'settings_screen.dart';
 import 'status_screen.dart';
-import 'ai_screen.dart';
+import 'starred_messages_screen.dart';
 import 'create_group_screen.dart';
 import 'add_contact_screen.dart';
 
@@ -22,14 +22,91 @@ class _ChatListScreenState extends State<ChatListScreen> {
   int _currentIndex = 0;
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
 
+  void _showPopupMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.group),
+                title: const Text('Grup baru'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.people),
+                title: const Text('Komunitas baru'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.cell_tower),
+                title: const Text('Daftar siaran'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.devices),
+                title: const Text('Perangkat tertaut'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.star),
+                title: const Text('Berbintang'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.done_all),
+                title: const Text('Baca semua'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  // Logika Baca Semua (Mark As Read)
+                  final rooms = await FirebaseFirestore.instance.collection('rooms').where('members', arrayContains: myUid).get();
+                  for(var room in rooms.docs) {
+                    final msgs = await room.reference.collection('messages').where('status', isEqualTo: 'sent').get();
+                    for (var m in msgs.docs) {
+                      m.reference.update({'status': 'read'});
+                    }
+                  }
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua chat ditandai telah dibaca')));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Pengaturan'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: const Text('Alihkan akun'),
+                onTap: () {
+                  Navigator.pop(context);
+                  FirebaseAuth.instance.signOut();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    // Warna Khas WhatsApp
     final bgColor = isDark ? const Color(0xFF0B141A) : Colors.white;
     final appBarColor = isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54);
-    final textColor = isDark ? Colors.white : Colors.black;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -45,19 +122,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         actions: [
           if (_currentIndex == 0) ...[
             IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.white), onPressed: () {}),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) {
-                if (value == 'profile') Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-                if (value == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-                if (value == 'logout') FirebaseAuth.instance.signOut();
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'profile', child: Text('Profil')),
-                const PopupMenuItem(value: 'settings', child: Text('Pengaturan')),
-                const PopupMenuItem(value: 'logout', child: Text('Keluar')),
-              ],
-            ),
+            IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: _showPopupMenu),
           ] else ...[
             IconButton(icon: const Icon(Icons.search, color: Colors.white), onPressed: () {}),
             IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: () {}),
@@ -67,10 +132,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          _buildChatsTab(isDark, textColor),
-          _buildUpdatesTab(isDark, textColor),
-          _buildCommunitiesTab(isDark, textColor),
-          _buildCallsTab(isDark, textColor),
+          _buildChatsTab(isDark),
+          const StatusScreen(), // Tab Pembaruan sekarang menampilkan Status
+          _buildCommunitiesTab(isDark),
+          _buildCallsTab(isDark),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -89,9 +154,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       ),
       floatingActionButton: _currentIndex == 0 
           ? FloatingActionButton(
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen()));
-              },
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddContactScreen())),
               backgroundColor: const Color(0xFF25D366),
               child: const Icon(Icons.add_comment, color: Colors.white),
             )
@@ -99,11 +162,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  // ================= TAB CHAT =================
-  Widget _buildChatsTab(bool isDark, Color textColor) {
+  Widget _buildChatsTab(bool isDark) {
+    final textColor = isDark ? Colors.white : Colors.black;
     return Column(
       children: [
-        // Search Bar
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Container(
@@ -121,8 +183,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ),
           ),
         ),
-        
-        // Filter Chips
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -144,8 +204,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
         ),
         const SizedBox(height: 8),
-
-        // List Chat
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('rooms').snapshots(),
@@ -163,16 +221,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 return bTime.compareTo(aTime);
               });
 
-              List<Widget> tiles = [];
-              
-              // Global Room
-              tiles.add(ListTile(
-                leading: const CircleAvatar(radius: 26, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11')),
-                title: Text('Ruang Global', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                subtitle: Text('Ngobrol dengan semua orang', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
-                trailing: const Text('Sekarang', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen(roomId: 'global', roomName: 'Ruang Global'))),
-              ));
+              List<Widget> tiles = [
+                ListTile(
+                  leading: const CircleAvatar(radius: 26, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11')),
+                  title: Text('Ruang Global', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+                  subtitle: Text('Ngobrol dengan semua orang', style: TextStyle(color: isDark ? Colors.grey : Colors.black54)),
+                  trailing: const Text('Sekarang', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen(roomId: 'global', roomName: 'Ruang Global'))),
+                )
+              ];
 
               for (var doc in allRooms) {
                 final data = doc.data() as Map<String, dynamic>;
@@ -223,77 +280,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  // ================= TAB PEMBARUAN =================
-  Widget _buildUpdatesTab(bool isDark, Color textColor) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('Status', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 180,
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100], borderRadius: BorderRadius.circular(16)),
-                child: Stack(
-                  children: [
-                    Positioned(
-                      top: 16, left: 16,
-                      child: CircleAvatar(radius: 24, backgroundColor: Colors.grey, child: const Icon(Icons.person, color: Colors.white)),
-                    ),
-                    const Positioned(
-                      top: 50, left: 30,
-                      child: CircleAvatar(radius: 10, backgroundColor: Color(0xFF25D366), child: Icon(Icons.add, size: 14, color: Colors.white)),
-                    ),
-                    Positioned(bottom: 16, left: 16, child: Text('Tambah\nStatus', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Container(
-                height: 180,
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100], borderRadius: BorderRadius.circular(16)),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.visibility_off, size: 40, color: Colors.grey[500]),
-                    const SizedBox(height: 8),
-                    Text('Disembunyikan', style: TextStyle(color: Colors.grey[500], fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Saluran', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
-            TextButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.grid_view, size: 16),
-              label: const Text('Jelajahi'),
-              style: TextButton.styleFrom(backgroundColor: isDark ? const Color(0xFF1F2C34) : Colors.grey[200], foregroundColor: textColor),
-            ),
-          ],
-        ),
-        // Mock Saluran
-        ListTile(
-          leading: const CircleAvatar(backgroundColor: Colors.blue, child: Icon(Icons.campaign, color: Colors.white)),
-          title: Text('Saluran Berita', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-          subtitle: const Text('Pembaruan info terbaru', style: TextStyle(color: Colors.grey)),
-          trailing: const Text('Kemarin', style: TextStyle(color: Colors.grey, fontSize: 12)),
-        ),
-      ],
-    );
-  }
-
-  // ================= TAB KOMUNITAS =================
-  Widget _buildCommunitiesTab(bool isDark, Color textColor) {
+  Widget _buildCommunitiesTab(bool isDark) {
+    final textColor = isDark ? Colors.white : Colors.black;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -309,20 +297,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
             Text('Tetap terhubung dengan komunitas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor), textAlign: TextAlign.center),
             const SizedBox(height: 12),
             const Text('Komunitas menyatukan anggota dalam grup berdasarkan topik dan memudahkan untuk menerima pengumuman admin.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)),
-              child: const Text('Mulai komunitas Anda'),
-            )
           ],
         ),
       ),
     );
   }
 
-  // ================= TAB PANGGILAN =================
-  Widget _buildCallsTab(bool isDark, Color textColor) {
+  Widget _buildCallsTab(bool isDark) {
+    final textColor = isDark ? Colors.white : Colors.black;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [

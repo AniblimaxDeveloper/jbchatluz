@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
@@ -24,6 +25,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String _activeFilter = 'Semua';
   String _searchQuery = "";
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+  
+  bool _isLockedFolderOpen = false;
 
   void _showFeatureDialog(String title) {
     showDialog(
@@ -36,6 +39,44 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
+  Future<bool> _verifyPin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPin = prefs.getString('app_pin');
+
+    if (savedPin == null || savedPin.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Atur PIN terlebih dahulu di menu Pengaturan.')));
+      return false;
+    }
+
+    final pinController = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Masukkan PIN'),
+        content: TextField(
+          controller: pinController,
+          keyboardType: TextInputType.number,
+          obscureText: true,
+          decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'PIN Rahasia'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () {
+              if (pinController.text == savedPin) {
+                Navigator.pop(context, true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Salah!')));
+              }
+            },
+            child: const Text('Buka'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   void _showPopupMenu() {
     showModalBottomSheet(
       context: context,
@@ -45,11 +86,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ListTile(
-                leading: const Icon(Icons.group), title: const Text('Grup baru'),
-                onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group'))); },
-              ),
-              ListTile(leading: const Icon(Icons.people), title: const Text('Komunitas baru'), onTap: () { Navigator.pop(context); _showFeatureDialog('Komunitas'); }),
+              ListTile(leading: const Icon(Icons.group), title: const Text('Grup baru'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group'))); }),
               ListTile(leading: const Icon(Icons.star), title: const Text('Berbintang'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen())); }),
               ListTile(leading: const Icon(Icons.settings), title: const Text('Pengaturan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())); }),
             ],
@@ -59,7 +96,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  void _showChatOptions(String roomId, bool isArchived, bool isPinned) {
+  void _showChatOptions(String roomId, bool isArchived, bool isPinned, bool isLocked) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -68,28 +105,28 @@ class _ChatListScreenState extends State<ChatListScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin),
-                title: Text(isPinned ? 'Lepas Sematan' : 'Sematkan Chat'),
+                leading: Icon(isLocked ? Icons.lock_open : Icons.lock),
+                title: Text(isLocked ? 'Buka Kunci Obrolan' : 'Kunci Obrolan (Sembunyikan)'),
                 onTap: () {
                   Navigator.pop(context);
-                  FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isPinned': !isPinned});
+                  FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isLocked': !isLocked});
+                  if (!isLocked) _isLockedFolderOpen = false; // Sembunyikan folder jika baru dikunci
                 },
+              ),
+              ListTile(
+                leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin),
+                title: Text(isPinned ? 'Lepas Sematan' : 'Sematkan Chat'),
+                onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isPinned': !isPinned}); },
               ),
               ListTile(
                 leading: Icon(isArchived ? Icons.unarchive : Icons.archive),
                 title: Text(isArchived ? 'Keluarkan dari Arsip' : 'Arsipkan Chat'),
-                onTap: () {
-                  Navigator.pop(context);
-                  FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isArchived': !isArchived});
-                },
+                onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isArchived': !isArchived}); },
               ),
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
                 title: const Text('Hapus Chat', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  FirebaseFirestore.instance.collection('rooms').doc(roomId).delete();
-                },
+                onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).delete(); },
               ),
             ],
           ),
@@ -192,14 +229,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid));
               }).toList();
 
-              // Filter
-              if (_activeFilter == 'Grup') allRooms = allRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
+              // 1. Filter Chat yang dikunci
+              final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
+              var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true).toList();
 
-              // Pisahkan Arsip dan Non-Arsip
-              final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true).toList();
-              var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] != true).toList();
+              if (_activeFilter == 'Grup') activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
 
-              // Sorting: Pin ke atas, lalu waktu
+              // 2. Sorting
               activeRooms.sort((a, b) {
                 final aPinned = (a.data() as Map)['isPinned'] == true;
                 final bPinned = (b.data() as Map)['isPinned'] == true;
@@ -212,69 +248,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
               List<Widget> tiles = [];
 
-              // Tampilkan folder Arsip jika ada
-              if (archivedRooms.isNotEmpty) {
+              // 3. Tampilkan Folder "Chat Terkunci" jika ada chat yang dikunci
+              if (lockedRooms.isNotEmpty) {
                 tiles.add(ListTile(
-                  leading: const Icon(Icons.archive, color: Colors.grey),
-                  title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                  trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Color(0xFF25D366))),
-                  onTap: () {
-                    // Logika membuka folder arsip bisa ditambahkan di sini
+                  leading: const Icon(Icons.lock, color: Color(0xFF25D366)),
+                  title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                  trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)),
+                  onTap: () async {
+                    if (!_isLockedFolderOpen) {
+                      final unlocked = await _verifyPin();
+                      if (unlocked) setState(() => _isLockedFolderOpen = true);
+                    } else {
+                      setState(() => _isLockedFolderOpen = false); // Tutup kembali
+                    }
                   },
                 ));
               }
 
-              for (var doc in activeRooms) {
-                final data = doc.data() as Map<String, dynamic>;
-                final isPrivate = data['type'] == 'private';
-                final isPinned = data['isPinned'] == true;
-                final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
-
-                if (isPrivate) {
-                  String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
-                  tiles.add(FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
-                    builder: (context, userSnap) {
-                      String name = 'Pengguna';
-                      String status = data['lastMessage'] ?? '';
-                      ImageProvider? avatarImage;
-
-                      if (userSnap.hasData && userSnap.data!.exists) {
-                        final uData = userSnap.data!.data() as Map<String, dynamic>;
-                        name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
-                        if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) avatarImage = MemoryImage(base64Decode(uData['photoBase64']));
-                      }
-
-                      if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
-
-                      return ListTile(
-                        leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')),
-                        title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                        subtitle: Row(
-                          children: [
-                            if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey),
-                            if (isPinned) const SizedBox(width: 4),
-                            Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54))),
-                          ],
-                        ),
-                        trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                        onLongPress: () => _showChatOptions(doc.id, false, isPinned),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name))),
-                      );
-                    },
-                  ));
-                } else {
-                  final groupName = data['name'] ?? 'Grup';
-                  if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) continue;
-
-                  tiles.add(ListTile(
-                    leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
-                    title: Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                    trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    onLongPress: () => _showChatOptions(doc.id, false, isPinned),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName))),
-                  ));
+              // 4. Jika folder terkunci terbuka, masukkan chat yang terkunci ke daftar
+              if (_isLockedFolderOpen) {
+                for (var doc in lockedRooms) {
+                  _buildRoomTile(doc, textColor, isDark, tiles);
                 }
+              }
+
+              // 5. Tampilkan chat normal
+              for (var doc in activeRooms) {
+                _buildRoomTile(doc, textColor, isDark, tiles);
               }
 
               return ListView(children: tiles);
@@ -283,6 +283,73 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
       ],
     );
+  }
+
+  void _buildRoomTile(DocumentSnapshot doc, Color textColor, bool isDark, List<Widget> tiles) {
+    final data = doc.data() as Map<String, dynamic>;
+    final isPrivate = data['type'] == 'private';
+    final isPinned = data['isPinned'] == true;
+    final isLocked = data['isLocked'] == true;
+    final isArchived = data['isArchived'] == true;
+    final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
+
+    if (isArchived) return; // Sembunyikan yang diarsipkan untuk sementara
+
+    if (isPrivate) {
+      String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
+      tiles.add(FutureBuilder<DocumentSnapshot>(
+        future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
+        builder: (context, userSnap) {
+          String name = 'Pengguna';
+          String status = data['lastMessage'] ?? '';
+          ImageProvider? avatarImage;
+
+          if (userSnap.hasData && userSnap.data!.exists) {
+            final uData = userSnap.data!.data() as Map<String, dynamic>;
+            name = uData['displayName'] ?? uData['email'] ?? 'Pengguna';
+            if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) avatarImage = MemoryImage(base64Decode(uData['photoBase64']));
+          }
+
+          if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
+
+          return ListTile(
+            leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')),
+            title: Row(
+              children: [
+                Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+                if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)),
+              ],
+            ),
+            subtitle: Row(
+              children: [
+                if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey),
+                if (isPinned) const SizedBox(width: 4),
+                Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54))),
+              ],
+            ),
+            trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name))),
+          );
+        },
+      ));
+    } else {
+      final groupName = data['name'] ?? 'Grup';
+      if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) return;
+
+      tiles.add(ListTile(
+        leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
+        title: Row(
+          children: [
+            Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+            if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)),
+          ],
+        ),
+        trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName))),
+      ));
+    }
   }
 
   Widget _buildCommunitiesTab(bool isDark) {

@@ -50,7 +50,6 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription? _typingListener;
   int _disappearingDuration = 0;
 
-  // State untuk Reply & Typing
   Map<String, dynamic>? _replyTo;
   bool _isOtherTyping = false;
   Timer? _typingTimer;
@@ -265,7 +264,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text, Map<String, dynamic> data) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      // BARIS REAKSI EMOJI
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
@@ -281,7 +279,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openMediaViewer(String imageUrl, bool isViewOnce, DocumentSnapshot doc) {
-    if (isViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); } // Hancurkan URL
+    if (isViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); }
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(backgroundColor: Colors.black, appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(isViewOnce ? 'Sekali Lihat' : 'Foto')), body: Center(child: InteractiveViewer(panEnabled: true, child: Image.network(imageUrl))))));
   }
 
@@ -291,7 +289,13 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     ImageProvider? headerImage;
-    if (_otherPhoto.isNotEmpty) { headerImage = _otherPhoto.startsWith('http') ? NetworkImage(_otherPhoto) : MemoryImage(base64Decode(_otherPhoto)); }
+    if (_otherPhoto.isNotEmpty) {
+      if (_otherPhoto.startsWith('http')) {
+        headerImage = NetworkImage(_otherPhoto);
+      } else {
+        headerImage = MemoryImage(base64Decode(_otherPhoto));
+      }
+    }
 
     return ValueListenableBuilder<Color>(valueListenable: bubbleColorNotifier, builder: (context, currentBubbleColor, child) {
       return Scaffold(
@@ -333,45 +337,20 @@ class _ChatScreenState extends State<ChatScreen> {
               
               return Align(alignment: isMe ? Alignment.centerRight : Alignment.centerLeft, child: GestureDetector(onLongPress: () => _showMessageOptions(doc, isMe, displayText, data), child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
-                
-                // RENDER BALASAN (QUOTE)
-                if (replyTo != null)
-                  Container(
-                    padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))),
-                      Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87)),
-                    ]),
-                  ),
-
-                if (type == 'image' && data['viewOnce'] == true)
-                  GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
-                else if (type == 'image')
-                  GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
+                if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
+                if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
+                else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
                 else if (type == 'audio') Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
                 else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                 else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
                 else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
                 else Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
-                
-                // RENDER REAKSI EMOJI
                 if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
-
                 Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey)]]),
               ]))));
             });
           })),
-          
-          // REPLY PREVIEW
-          if (_replyTo != null)
-            Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [
-              const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])),
-              IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null)),
-            ])),
-
-          // INPUT BAR TERPADU
+          if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
           Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
               IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),

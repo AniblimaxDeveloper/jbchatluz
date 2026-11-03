@@ -33,14 +33,18 @@ class _AddContactScreenState extends State<AddContactScreen> {
       final targetUid = targetUser.id;
       final targetName = targetUser.data()['displayName'] ?? 'Pengguna';
 
-      // Cari apakah room private sudah ada
+      // 1. SIMPAN KE KONTAK (Buku Telepon)
+      await FirebaseFirestore.instance.collection('users').doc(myUid).update({
+        'contacts': FieldValue.arrayUnion([targetUid]),
+      });
+
+      // 2. Cari atau Buat Room Private
       final roomQuery = await FirebaseFirestore.instance.collection('rooms')
           .where('type', isEqualTo: 'private')
           .where('members', arrayContains: myUid)
           .get();
 
       String roomId = '';
-      
       for (var doc in roomQuery.docs) {
         final members = doc.data()['members'] as List;
         if (members.contains(targetUid)) {
@@ -49,7 +53,6 @@ class _AddContactScreenState extends State<AddContactScreen> {
         }
       }
 
-      // Jika belum ada, buat room baru
       if (roomId.isEmpty) {
         final newRoom = await FirebaseFirestore.instance.collection('rooms').add({
           'type': 'private',
@@ -83,7 +86,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const Text('Masukkan 9 Digit ID JBchatluz teman Anda untuk memulai obrolan.', style: TextStyle(color: Colors.grey)),
+            const Text('Masukkan 9 Digit ID JBchatluz teman Anda untuk menyimpan kontak dan memulai obrolan.', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             TextField(
               controller: _idController,
@@ -97,7 +100,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
               child: FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFF00A884)),
                 onPressed: _isLoading ? null : _searchAndChat,
-                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Cari & Mulai Chat'),
+                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Simpan & Mulai Chat'),
               ),
             ),
           ],

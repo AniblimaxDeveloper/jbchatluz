@@ -44,6 +44,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAutoReply = false;
   String _autoReplyMsg = "";
   StreamSubscription? _messageListener;
+  
+  // State TTL (Pesan Sementara)
+  int _disappearingDuration = 0; // Dalam milidetik
 
   @override
   void initState() {
@@ -79,7 +82,6 @@ class _ChatScreenState extends State<ChatScreen> {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
         if (data['senderId'] != myUid && data['type'] == 'text') {
-           // Cek apakah sudah pernah dibalas (mencegah spam)
            FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
             'type': 'text', 'text': '🤖 [Auto-Reply]: $_autoReplyMsg', 'senderId': myUid,
             'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot',
@@ -98,7 +100,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
     if (roomDoc.exists) {
       final type = roomDoc.data()!['type'];
-      setState(() => _roomType = type);
+      setState(() {
+        _roomType = type;
+        _disappearingDuration = roomDoc.data()!['disappearingDuration'] ?? 0;
+      });
+      
       if (type == 'private') {
         final members = (roomDoc.data()!['members'] as List?) ?? [];
         _otherUid = members.firstWhere((id) => id != myUid, orElse: () => '');
@@ -133,6 +139,14 @@ class _ChatScreenState extends State<ChatScreen> {
     await batch.commit();
   }
 
+  void _setDisappearingMessages(int durationInMillis) async {
+    if (widget.roomId == 'global') return;
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
+      'disappearingDuration': durationInMillis,
+    });
+    setState(() => _disappearingDuration = durationInMillis);
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
@@ -145,10 +159,13 @@ class _ChatScreenState extends State<ChatScreen> {
       final response = await request.send();
       final jsonData = jsonDecode(await response.stream.bytesToString());
       if (jsonData['success'] == true) {
+        Timestamp? expiresAt;
+        if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+        
         await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
           'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': '',
           'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
         });
       }
     } catch (e) {
@@ -176,14 +193,18 @@ class _ChatScreenState extends State<ChatScreen> {
         final ref = FirebaseStorage.instance.ref().child('chat_audio/${DateTime.now().millisecondsSinceEpoch}.m4a');
         await ref.putFile(File(path));
         final url = await ref.getDownloadURL();
+        
+        Timestamp? expiresAt;
+        if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+
         await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
           'type': 'audio', 'mediaUrl': url, 'text': '',
           'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload suara. Pastikan Firebase Storage (Blaze) aktif.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload suara.')));
     } finally { setState(() => _isUploading = false); }
   }
 
@@ -191,14 +212,67 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
+    
+    Timestamp? expiresAt;
+    if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
       'type': 'text', 'text': text, 'senderId': myUid,
       'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-      'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+      'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt,
     });
     if (widget.roomId != 'global') {
       FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp()});
     }
+  }
+
+  void _createPoll() {
+    final questionController = TextEditingController();
+    final optionAController = TextEditingController();
+    final optionBController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Buat Voting (Poll)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: questionController, decoration: const InputDecoration(labelText: 'Pertanyaan')),
+            const SizedBox(height: 8),
+            TextField(controller: optionAController, decoration: const InputDecoration(labelText: 'Pilihan A')),
+            const SizedBox(height: 8),
+            TextField(controller: optionBController, decoration: const InputDecoration(labelText: 'Pilihan B')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(
+            onPressed: () async {
+              if (questionController.text.isNotEmpty && optionAController.text.isNotEmpty && optionBController.text.isNotEmpty) {
+                await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+                  'type': 'poll',
+                  'question': questionController.text,
+                  'options': [optionAController.text, optionBController.text],
+                  'votes': {},
+                  'senderId': myUid,
+                  'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+                  'timestamp': FieldValue.serverTimestamp(),
+                  'status': 'sent',
+                });
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Kirim'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _votePoll(String docId, int optionIndex, Map<String, dynamic> votes) async {
+    votes[myUid] = optionIndex;
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').doc(docId).update({'votes': votes});
   }
 
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text) {
@@ -209,23 +283,9 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'),
-                onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'),
-                onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); },
-              ),
-              if (isMe)
-                ListTile(
-                  leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)),
-                  onTap: () async {
-                    // PERUBAHAN: Tidak dihapus permanen, hanya ditandai isDeleted
-                    await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'});
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                ),
+              ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
+              ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
+              if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
             ],
           ),
         );
@@ -238,27 +298,13 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (context) {
         final emojis = ['😀', '😂', '🥰', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '❤️', '💔', '🎉', '✨', '📷', '🎵'];
-        return Container(
-          height: 250, padding: const EdgeInsets.all(8),
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10),
-            itemCount: emojis.length,
-            itemBuilder: (context, index) => GestureDetector(
-              onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); },
-              child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28))),
-            ),
-          ),
-        );
+        return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10), itemCount: emojis.length, itemBuilder: (context, index) => GestureDetector(onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); }, child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28))))));
       },
     );
   }
 
   void _openMediaViewer(String imageUrl) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Foto')),
-      body: Center(child: InteractiveViewer(panEnabled: true, minScale: 0.5, maxScale: 3.0, child: Image.network(imageUrl))),
-    )));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(backgroundColor: Colors.black, appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Foto')), body: Center(child: InteractiveViewer(panEnabled: true, minScale: 0.5, maxScale: 3.0, child: Image.network(imageUrl))))));
   }
 
   @override
@@ -292,7 +338,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
+                        if (_disappearingDuration > 0)
+                          const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                        else if (_otherStatus.isNotEmpty)
+                          Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
                       ],
                     ),
                   ),
@@ -300,6 +349,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             actions: [
+              // Tombol TTL
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.timer),
+                onSelected: (val) {
+                  if (val == '0') _setDisappearingMessages(0);
+                  if (val == '60000') _setDisappearingMessages(60000);
+                  if (val == '3600000') _setDisappearingMessages(3600000);
+                  if (val == '86400000') _setDisappearingMessages(86400000);
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: '0', child: Text('Nonaktifkan')),
+                  const PopupMenuItem(value: '60000', child: Text('1 Menit')),
+                  const PopupMenuItem(value: '3600000', child: Text('1 Jam')),
+                  const PopupMenuItem(value: '86400000', child: Text('1 Hari')),
+                ],
+              ),
               IconButton(icon: const Icon(Icons.videocam), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)))),
               IconButton(icon: const Icon(Icons.call), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)))),
             ],
@@ -312,7 +377,24 @@ class _ChatScreenState extends State<ChatScreen> {
                   stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                    final docs = snapshot.data!.docs;
+                    
+                    final now = DateTime.now();
+                    final docs = snapshot.data!.docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      
+                      // Filter TTL (Pesan Sementara)
+                      if (data['expiresAt'] != null) {
+                        final expiresAt = (data['expiresAt'] as Timestamp).toDate();
+                        if (now.isAfter(expiresAt)) {
+                          doc.reference.delete(); // Hapus permanen dari database
+                          return false;
+                        }
+                      }
+
+                      // Filter Hapus Untuk Saya
+                      final deletedFor = (data['deletedFor'] as List?) ?? [];
+                      return !deletedFor.contains(myUid);
+                    }).toList();
 
                     return ListView.builder(
                       reverse: true,
@@ -324,19 +406,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         final isMe = data['senderId'] == myUid;
                         final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
                         final isDeleted = data['isDeleted'] == true;
-
-                        // Filter Hapus Untuk Saya
-                        final deletedFor = (data['deletedFor'] as List?) ?? [];
-                        if (deletedFor.contains(myUid)) return const SizedBox.shrink();
+                        final type = data['type'];
 
                         String displayText = data['text'] ?? '';
-                        // MOD ANTI-DELETE
                         if (isDeleted && !isMe) {
-                          if (!_isAntiDelete) {
-                            displayText = '🚫 Pesan ini telah dihapus';
-                          } else {
-                            displayText = '👻 [Anti-Delete]: $displayText';
-                          }
+                          displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus';
                         }
 
                         return Align(
@@ -355,22 +429,65 @@ class _ChatScreenState extends State<ChatScreen> {
                                 children: [
                                   if (!isMe && widget.roomId != 'global' && _roomType != 'private')
                                     Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
-                                  if (data['type'] == 'image')
+                                  
+                                  // RENDER MEDIA
+                                  if (type == 'image')
                                     GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl']), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
-                                  else if (data['type'] == 'audio')
+                                  else if (type == 'audio')
                                     Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
+                                  
+                                  // RENDER POLL
+                                  else if (type == 'poll')
+                                    Container(
+                                      width: 250,
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                                          const SizedBox(height: 8),
+                                          ...List.generate(2, (i) {
+                                            final options = List<String>.from(data['options'] ?? []);
+                                            final votes = Map<String, dynamic>.from(data['votes'] ?? {});
+                                            final voteCount = votes.values.where((v) => v == i).length;
+                                            final totalVotes = votes.length;
+                                            final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes);
+
+                                            return GestureDetector(
+                                              onTap: () => _votePoll(doc.id, i, votes),
+                                              child: Container(
+                                                margin: const EdgeInsets.only(bottom: 6),
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
+                                                child: Stack(
+                                                  children: [
+                                                    Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)),
+                                                    Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                        Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)),
+                                                        Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    )
+                                  
+                                  // RENDER TEKS
                                   else
-                                    Text(
-                                      displayText, 
-                                      style: TextStyle(
-                                        color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), 
-                                        fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal,
-                                        fontSize: 16
-                                      )
-                                    ),
+                                    Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
+                                  
                                   Row(
                                     mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
+                                      if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey),
+                                      const SizedBox(width: 4),
                                       Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                                       if (isMe) ...[
                                         const SizedBox(width: 4),
@@ -388,6 +505,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
+              
+              // BILAH INPUT
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 child: Row(
@@ -399,9 +518,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Row(
                           children: [
                             IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
+                            IconButton(icon: const Icon(Icons.bar_chart, color: Colors.grey), onPressed: _createPoll), // Tombol Poll
                             Expanded(child: TextField(controller: _msgController, onChanged: (val) => setState(() {}), style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
                             IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery)),
-                            IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.camera)),
                           ],
                         ),
                       ),
@@ -413,10 +532,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: CircleAvatar(
                         backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366),
                         radius: 24,
-                        child: IconButton(
-                          icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20),
-                          onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage),
-                        ),
+                        child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)),
                       ),
                     ),
                   ],

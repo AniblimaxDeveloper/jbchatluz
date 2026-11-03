@@ -12,6 +12,23 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final _autoReplyController = TextEditingController();
+  bool _isAutoReplyOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isAutoReplyOn = prefs.getBool('mod_auto_reply') ?? false;
+      _autoReplyController.text = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk, akan membalas nanti.';
+    });
+  }
+
   void _setPin() {
     final pinController = TextEditingController();
     showDialog(
@@ -66,9 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) {
               return RadioListTile<String>(
-                title: Text(font),
-                value: font,
-                groupValue: fontNotifier.value,
+                title: Text(font), value: font, groupValue: fontNotifier.value,
                 onChanged: (val) async {
                   if (val != null) {
                     final prefs = await SharedPreferences.getInstance();
@@ -102,10 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   bubbleColorNotifier.value = color;
                   if (context.mounted) Navigator.pop(context);
                 },
-                child: Container(
-                  width: 50, height: 50,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey)),
-                ),
+                child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey))),
               );
             }).toList(),
           ),
@@ -117,6 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pengaturan MOD'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
@@ -124,7 +137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.dark_mode),
-            title: const Text('Mode Gelap'),
+            title: Text('Mode Gelap', style: TextStyle(color: textColor)),
             value: isDark,
             activeColor: const Color(0xFF25D366),
             onChanged: (value) async {
@@ -135,27 +148,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.palette),
-            title: const Text('Warna Bubble Chat'),
+            title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showBubbleColorPicker,
           ),
           ListTile(
             leading: const Icon(Icons.font_download),
-            title: const Text('Ganti Font'),
+            title: Text('Ganti Font', style: TextStyle(color: textColor)),
             subtitle: Text('Font: ${fontNotifier.value}'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showFontPicker,
           ),
           ListTile(
             leading: const Icon(Icons.wallpaper),
-            title: const Text('Wallpaper Chat'),
+            title: Text('Wallpaper Chat', style: TextStyle(color: textColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _pickWallpaper,
           ),
           const Divider(),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('MOD Unlimited (Eksklusif)', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
+          ),
+          
+          // Anti Delete
+          SwitchListTile(
+            secondary: const Icon(Icons.restore_from_trash, color: Colors.purple),
+            title: Text('Anti-Delete (Simpan Pesan Dihapus)', style: TextStyle(color: textColor)),
+            subtitle: const Text('Pesan yang dihapus orang lain akan tetap terlihat'),
+            value: isDark ? false : (ModalRoute.of(context)?.settings.name == 'anti' ? true : null) ?? false,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('mod_anti_delete', val);
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(val ? 'Anti-Delete Aktif' : 'Anti-Delete Nonaktif')));
+            },
+          ),
+
+          // Auto Reply
+          SwitchListTile(
+            secondary: const Icon(Icons.smart_toy, color: Colors.blue),
+            title: Text('Auto-Reply (Robot)', style: TextStyle(color: textColor)),
+            subtitle: const Text('Membalas pesan masuk secara otomatis'),
+            value: _isAutoReplyOn,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('mod_auto_reply', val);
+              setState(() => _isAutoReplyOn = val);
+            },
+          ),
+          if (_isAutoReplyOn)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: TextField(
+                controller: _autoReplyController,
+                style: TextStyle(color: textColor),
+                decoration: InputDecoration(
+                  labelText: 'Pesan Auto-Reply',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.check, color: Color(0xFF25D366)),
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('mod_auto_reply_msg', _autoReplyController.text);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pesan Auto-Reply disimpan')));
+                    },
+                  ),
+                ),
+              ),
+            ),
+          
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.lock),
-            title: const Text('Kunci Aplikasi (PIN)'),
+            title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _setPin,
           ),

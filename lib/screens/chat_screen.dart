@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,28 +31,63 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   String _otherUid = "";
-  
   String _otherName = "";
   String _otherPhoto = "";
   String _otherStatus = "";
   String _roomType = "private";
   
-  // State Voice Note
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
+  
+  // State MOD
+  bool _isAntiDelete = false;
+  bool _isAutoReply = false;
+  String _autoReplyMsg = "";
+  StreamSubscription? _messageListener;
 
   @override
   void initState() {
     super.initState();
     _loadReceiverProfile();
     _markMessagesAsRead();
+    _loadModSettings();
   }
 
   @override
   void dispose() {
+    _messageListener?.cancel();
     _recorder.dispose();
     _msgController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadModSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isAntiDelete = prefs.getBool('mod_anti_delete') ?? false;
+      _isAutoReply = prefs.getBool('mod_auto_reply') ?? false;
+      _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
+    });
+    _setupAutoReply();
+  }
+
+  void _setupAutoReply() {
+    if (!_isAutoReply) return;
+    _messageListener = FirebaseFirestore.instance
+        .collection('rooms').doc(widget.roomId).collection('messages')
+        .orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
+      if (snap.docs.isNotEmpty) {
+        final data = snap.docs.first.data();
+        if (data['senderId'] != myUid && data['type'] == 'text') {
+           // Cek apakah sudah pernah dibalas (mencegah spam)
+           FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+            'type': 'text', 'text': '🤖 [Auto-Reply]: $_autoReplyMsg', 'senderId': myUid,
+            'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot',
+            'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+          });
+        }
+      }
+    });
   }
 
   Future<void> _loadReceiverProfile() async {
@@ -59,16 +95,13 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() { _otherName = widget.roomName; _otherStatus = 'Ruang publik'; _roomType = 'global'; });
       return;
     }
-
     final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
     if (roomDoc.exists) {
       final type = roomDoc.data()!['type'];
       setState(() => _roomType = type);
-
       if (type == 'private') {
         final members = (roomDoc.data()!['members'] as List?) ?? [];
         _otherUid = members.firstWhere((id) => id != myUid, orElse: () => '');
-        
         if (_otherUid.isNotEmpty) {
           FirebaseFirestore.instance.collection('users').doc(_otherUid).snapshots().listen((userDoc) {
             if (userDoc.exists && mounted) {
@@ -94,7 +127,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.roomId == 'global') return;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('mod_hide_tick') ?? false) return;
-
     final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').where('senderId', isNotEqualTo: myUid).where('status', isEqualTo: 'sent').get();
     final batch = FirebaseFirestore.instance.batch();
     for (var doc in snapshot.docs) { batch.update(doc.reference, {'status': 'read'}); }
@@ -105,7 +137,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
     if (media == null) return;
-
     setState(() => _isUploading = true);
     try {
       const String imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
@@ -113,7 +144,6 @@ class _ChatScreenState extends State<ChatScreen> {
       request.files.add(await http.MultipartFile.fromPath('image', media.path));
       final response = await request.send();
       final jsonData = jsonDecode(await response.stream.bytesToString());
-      
       if (jsonData['success'] == true) {
         await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
           'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': '',
@@ -123,9 +153,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal upload foto: $e')));
-    } finally {
-      setState(() => _isUploading = false);
-    }
+    } finally { setState(() => _isUploading = false); }
   }
 
   Future<void> _startRecording() async {
@@ -136,9 +164,7 @@ class _ChatScreenState extends State<ChatScreen> {
         await _recorder.start(const RecordConfig(), path: path);
         setState(() => _isRecording = true);
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal merekam: $e')));
-    }
+    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal merekam: $e'))); }
   }
 
   Future<void> _stopRecording() async {
@@ -146,49 +172,65 @@ class _ChatScreenState extends State<ChatScreen> {
       final path = await _recorder.stop();
       setState(() => _isRecording = false);
       if (path != null) {
-        _uploadAudio(File(path));
+        setState(() => _isUploading = true);
+        final ref = FirebaseStorage.instance.ref().child('chat_audio/${DateTime.now().millisecondsSinceEpoch}.m4a');
+        await ref.putFile(File(path));
+        final url = await ref.getDownloadURL();
+        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+          'type': 'audio', 'mediaUrl': url, 'text': '',
+          'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+        });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
-    }
-  }
-
-  Future<void> _uploadAudio(File file) async {
-    setState(() => _isUploading = true);
-    try {
-      // Menggunakan Firebase Storage (Wajib Blaze Mode untuk file audio)
-      final ref = FirebaseStorage.instance.ref().child('chat_audio/${DateTime.now().millisecondsSinceEpoch}.m4a');
-      await ref.putFile(file);
-      final url = await ref.getDownloadURL();
-
-      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-        'type': 'audio', 'mediaUrl': url, 'text': '',
-        'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-        'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
-      });
-    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload suara. Pastikan Firebase Storage (Blaze) aktif.')));
-    } finally {
-      setState(() => _isUploading = false);
-    }
+    } finally { setState(() => _isUploading = false); }
   }
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
-
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
       'type': 'text', 'text': text, 'senderId': myUid,
       'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
       'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
     });
-
     if (widget.roomId != 'global') {
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({
-        'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp(),
-      });
+      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp()});
     }
+  }
+
+  void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'),
+                onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'),
+                onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); },
+              ),
+              if (isMe)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)),
+                  onTap: () async {
+                    // PERUBAHAN: Tidak dihapus permanen, hanya ditandai isDeleted
+                    await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'});
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _showEmojiPicker() {
@@ -201,12 +243,10 @@ class _ChatScreenState extends State<ChatScreen> {
           child: GridView.builder(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10),
             itemCount: emojis.length,
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); },
-                child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28))),
-              );
-            },
+            itemBuilder: (context, index) => GestureDetector(
+              onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); },
+              child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28))),
+            ),
           ),
         );
       },
@@ -214,23 +254,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openMediaViewer(String imageUrl) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Foto')),
-          body: Center(
-            child: InteractiveViewer(
-              panEnabled: true,
-              minScale: 0.5,
-              maxScale: 3.0,
-              child: Image.network(imageUrl),
-            ),
-          ),
-        ),
-      ),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: const Text('Foto')),
+      body: Center(child: InteractiveViewer(panEnabled: true, minScale: 0.5, maxScale: 3.0, child: Image.network(imageUrl))),
+    )));
   }
 
   @override
@@ -264,8 +292,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        if (_otherStatus.isNotEmpty)
-                          Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
+                        if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
                       ],
                     ),
                   ),
@@ -273,12 +300,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             actions: [
-              IconButton(icon: const Icon(Icons.videocam), onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)));
-              }),
-              IconButton(icon: const Icon(Icons.call), onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)));
-              }),
+              IconButton(icon: const Icon(Icons.videocam), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true)))),
+              IconButton(icon: const Icon(Icons.call), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false)))),
             ],
           ),
           body: Column(
@@ -291,77 +314,72 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     final docs = snapshot.data!.docs;
 
-                    List<Widget> messageWidgets = [];
-                    if (widget.roomId != 'global' && _roomType == 'private') {
-                      messageWidgets.add(
-                        Container(
-                          margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: isDark ? const Color(0xFF182229) : const Color(0xFFFFF3C4), borderRadius: BorderRadius.circular(8)),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.lock, size: 14, color: Colors.grey),
-                              SizedBox(width: 6),
-                              Text('Pesan pribadi Anda terenkripsi secara end-to-end', style: TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
-                            ],
-                          ),
-                        )
-                      );
-                    }
-
                     return ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                      itemCount: docs.length + messageWidgets.length,
+                      itemCount: docs.length,
                       itemBuilder: (context, index) {
-                        if (index >= docs.length) return messageWidgets[index - docs.length];
-
-                        final data = docs[index].data() as Map<String, dynamic>;
+                        final doc = docs[index];
+                        final data = doc.data() as Map<String, dynamic>;
                         final isMe = data['senderId'] == myUid;
                         final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
+                        final isDeleted = data['isDeleted'] == true;
+
+                        // Filter Hapus Untuk Saya
+                        final deletedFor = (data['deletedFor'] as List?) ?? [];
+                        if (deletedFor.contains(myUid)) return const SizedBox.shrink();
+
+                        String displayText = data['text'] ?? '';
+                        // MOD ANTI-DELETE
+                        if (isDeleted && !isMe) {
+                          if (!_isAntiDelete) {
+                            displayText = '🚫 Pesan ini telah dihapus';
+                          } else {
+                            displayText = '👻 [Anti-Delete]: $displayText';
+                          }
+                        }
 
                         return Align(
                           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!isMe && widget.roomId != 'global' && _roomType != 'private')
-                                  Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
-                                
-                                // MEDIA VIEWER (FOTO)
-                                if (data['type'] == 'image')
-                                  GestureDetector(
-                                    onTap: () => _openMediaViewer(data['mediaUrl']),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover),
+                          child: GestureDetector(
+                            onLongPress: () => _showMessageOptions(doc, isMe, displayText),
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (!isMe && widget.roomId != 'global' && _roomType != 'private')
+                                    Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
+                                  if (data['type'] == 'image')
+                                    GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl']), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
+                                  else if (data['type'] == 'audio')
+                                    Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
+                                  else
+                                    Text(
+                                      displayText, 
+                                      style: TextStyle(
+                                        color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), 
+                                        fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal,
+                                        fontSize: 16
+                                      )
                                     ),
-                                  )
-                                // AUDIO PLAYER (VOICE NOTE)
-                                else if (data['type'] == 'audio')
-                                  _buildAudioPlayer(data['mediaUrl'], isMe)
-                                else
-                                  Text(data['text'] ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16)),
-                                
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                    if (isMe) ...[
-                                      const SizedBox(width: 4),
-                                      Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey),
-                                    ]
-                                  ],
-                                ),
-                              ],
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                      if (isMe) ...[
+                                        const SizedBox(width: 4),
+                                        Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey),
+                                      ]
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -370,8 +388,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
-              
-              // BILAH INPUT CHAT DENGAN TOMBOL DINAMIS
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 child: Row(
@@ -383,14 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Row(
                           children: [
                             IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
-                            Expanded(
-                              child: TextField(
-                                controller: _msgController,
-                                onChanged: (val) => setState(() {}), // Memicu rebuild untuk ubah tombol
-                                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                                decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none),
-                              ),
-                            ),
+                            Expanded(child: TextField(controller: _msgController, onChanged: (val) => setState(() {}), style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
                             IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery)),
                             IconButton(icon: const Icon(Icons.camera_alt_outlined, color: Colors.grey), onPressed: _isUploading ? null : () => _pickImage(ImageSource.camera)),
                           ],
@@ -398,7 +407,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Tombol Dinamis: Mic (jika kosong), Send (jika ada teks)
                     GestureDetector(
                       onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null,
                       onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null,
@@ -406,11 +414,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366),
                         radius: 24,
                         child: IconButton(
-                          icon: Icon(
-                            _isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), 
-                            color: Colors.white, 
-                            size: 20
-                          ),
+                          icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20),
                           onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage),
                         ),
                       ),
@@ -422,26 +426,6 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildAudioPlayer(String url, bool isMe) {
-    final player = AudioPlayer();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36),
-          onPressed: () async {
-            if (player.state == PlayerState.playing) {
-              await player.pause();
-            } else {
-              await player.play(UrlSource(url));
-            }
-          },
-        ),
-        const Text('Pesan Suara', style: TextStyle(fontStyle: FontStyle.italic, fontSize: 15)),
-      ],
     );
   }
 }

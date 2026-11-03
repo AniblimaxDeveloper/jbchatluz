@@ -26,7 +26,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String _activeFilter = 'Semua';
   String _searchQuery = "";
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
+  
   bool _isLockedFolderOpen = false;
+  bool _isArchiveFolderOpen = false; // State Folder Arsip
 
   void _showFeatureDialog(String title) {
     showDialog(context: context, builder: (context) => AlertDialog(title: Text(title), content: const Text('Fitur ini akan segera hadir.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
@@ -106,14 +108,53 @@ class _ChatListScreenState extends State<ChatListScreen> {
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               var allRooms = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid)); }).toList();
+              
               final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
-              var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true).toList();
-              if (_activeFilter == 'Grup') activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
+              final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true && (doc.data() as Map)['isLocked'] != true).toList();
+              var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true && (doc.data() as Map)['isArchived'] != true).toList();
+
+              if (_activeFilter == 'Grup') {
+                activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
+              }
+
               activeRooms.sort((a, b) { final aPinned = (a.data() as Map)['isPinned'] == true; final bPinned = (b.data() as Map)['isPinned'] == true; if (aPinned && !bPinned) return -1; if (!aPinned && bPinned) return 1; Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now(); Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now(); return bTime.compareTo(aTime); });
+              
               List<Widget> tiles = [];
-              if (lockedRooms.isNotEmpty) { tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); }
-              if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles); } }
-              for (var doc in activeRooms) { _buildRoomTile(doc, textColor, isDark, tiles); }
+              
+              // FOLDER ARSIP
+              if (archivedRooms.isNotEmpty) {
+                tiles.add(ListTile(
+                  leading: const Icon(Icons.archive, color: Colors.grey),
+                  title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                  trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                  onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen),
+                ));
+                if (_isArchiveFolderOpen) {
+                  for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); }
+                }
+              }
+
+              // FOLDER TERKUNCI
+              if (lockedRooms.isNotEmpty) {
+                tiles.add(ListTile(
+                  leading: const Icon(Icons.lock, color: Color(0xFF25D366)),
+                  title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                  trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)),
+                  onTap: () async {
+                    if (!_isLockedFolderOpen) {
+                      final unlocked = await _verifyPin();
+                      if (unlocked) setState(() => _isLockedFolderOpen = true);
+                    } else { setState(() => _isLockedFolderOpen = false); }
+                  },
+                ));
+                if (_isLockedFolderOpen) {
+                  for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); }
+                }
+              }
+
+              // CHAT AKTIF
+              for (var doc in activeRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); }
+
               return ListView(children: tiles);
             },
           ),
@@ -122,11 +163,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  void _buildRoomTile(DocumentSnapshot doc, Color textColor, bool isDark, List<Widget> tiles) {
+  void _buildRoomTile(DocumentSnapshot doc, Color textColor, bool isDark, List<Widget> tiles, {required bool showArchived}) {
     final data = doc.data() as Map<String, dynamic>;
     final isPrivate = data['type'] == 'private'; final isPinned = data['isPinned'] == true; final isLocked = data['isLocked'] == true; final isArchived = data['isArchived'] == true;
     final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
-    if (isArchived) return;
+    
+    // Sembunyikan chat arsip jika tidak dalam folder arsip
+    if (isArchived && !showArchived) return;
+
     if (isPrivate) {
       String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
       tiles.add(FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(), builder: (context, userSnap) {
@@ -146,7 +190,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.green[50], shape: BoxShape.circle), child: const Icon(Icons.groups, size: 80, color: Color(0xFF25D366))), const SizedBox(height: 24), Text('Tetap terhubung dengan komunitas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor), textAlign: TextAlign.center)])));
   }
 
-  // TAB PANGGILAN DENGAN RIWAYAT (Call Logs)
   Widget _buildCallsTab(bool isDark) {
     final textColor = isDark ? Colors.white : Colors.black;
     return Column(

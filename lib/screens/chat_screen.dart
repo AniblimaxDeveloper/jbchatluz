@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
-import 'group_info_screen.dart';
+import 'group_info_screen.dart'; // Import layar grup
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -27,9 +27,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   String _otherUid = "";
   
+  // State Profil & Tipe Room
   String _otherName = "";
   String _otherPhoto = "";
   String _otherStatus = "";
+  String _roomType = "private"; // <-- Variabel ini yang tadi hilang
 
   @override
   void initState() {
@@ -40,13 +42,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadReceiverProfile() async {
     if (widget.roomId == 'global') {
-      setState(() { _otherName = widget.roomName; _otherStatus = 'Ruang publik'; });
+      setState(() { 
+        _otherName = widget.roomName; 
+        _otherStatus = 'Ruang publik';
+        _roomType = 'global';
+      });
       return;
     }
 
     final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
     if (roomDoc.exists) {
       final type = roomDoc.data()!['type'];
+      setState(() => _roomType = type); // Set tipe room (private/group/channel)
+
       if (type == 'private') {
         final members = (roomDoc.data()!['members'] as List?) ?? [];
         _otherUid = members.firstWhere((id) => id != myUid, orElse: () => '');
@@ -67,7 +75,10 @@ class _ChatScreenState extends State<ChatScreen> {
           });
         }
       } else {
-        setState(() { _otherName = roomDoc.data()!['name'] ?? widget.roomName; _otherStatus = 'Grup'; });
+        setState(() { 
+          _otherName = roomDoc.data()!['name'] ?? widget.roomName; 
+          _otherStatus = 'Grup'; 
+        });
       }
     }
   }
@@ -115,7 +126,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     _msgController.clear();
 
-    // Cek Blokir
     final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
     final myBlocked = (myDoc.data()!['blockedUsers'] as List?) ?? [];
     if (myBlocked.contains(_otherUid)) {
@@ -182,8 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context) {
         final emojis = ['😀', '😂', '🥰', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '❤️', '💔', '🎉', '✨', '📷', '🎵'];
         return Container(
-          height: 250,
-          padding: const EdgeInsets.all(8),
+          height: 250, padding: const EdgeInsets.all(8),
           child: GridView.builder(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10),
             itemCount: emojis.length,
@@ -215,6 +224,7 @@ class _ChatScreenState extends State<ChatScreen> {
             foregroundColor: Colors.white,
             title: InkWell(
               onTap: () {
+                // LOGIKA KLIK JUDUL CHAT
                 if (_roomType == 'group' || _roomType == 'channel') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName)));
                 } else if (_otherUid.isNotEmpty) {
@@ -256,14 +266,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     
-                    // Filter pesan yang dihapus untuk saya
                     final docs = snapshot.data!.docs.where((doc) {
                       final deletedFor = (doc.data() as Map)['deletedFor'] as List?;
                       return deletedFor == null || !deletedFor.contains(myUid);
                     }).toList();
 
                     List<Widget> messageWidgets = [];
-                    if (widget.roomId != 'global') {
+                    if (widget.roomId != 'global' && _roomType == 'private') {
                       messageWidgets.add(
                         Container(
                           margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(12),
@@ -306,7 +315,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (!isMe && widget.roomId != 'global')
+                                  if (!isMe && widget.roomId != 'global' && _roomType != 'private')
                                     Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                                   if (data['type'] == 'image')
                                     ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover))

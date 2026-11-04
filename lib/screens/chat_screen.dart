@@ -46,6 +46,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isRecording = false;
   bool _isAntiDelete = false;
   bool _isAutoReply = false;
+  bool _antiViewOnce = false;
+  Color _tickColor = Colors.blue;
   String _autoReplyMsg = "";
   StreamSubscription? _messageListener;
   StreamSubscription? _typingListener;
@@ -116,6 +118,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _isAntiDelete = prefs.getBool('mod_anti_delete') ?? false;
       _isAutoReply = prefs.getBool('mod_auto_reply') ?? false;
       _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
+      _antiViewOnce = prefs.getBool('mod_anti_viewonce') ?? false;
+      final tickStr = prefs.getString('mod_tick_color') ?? 'blue';
+      if (tickStr == 'blue') _tickColor = Colors.blue;
+      else if (tickStr == 'grey') _tickColor = Colors.grey;
+      else if (tickStr == 'purple') _tickColor = Colors.purple;
+      else if (tickStr == 'green') _tickColor = Colors.green;
     });
     _setupAutoReply();
   }
@@ -312,7 +320,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _openMediaViewer(String imageUrl, bool isViewOnce, DocumentSnapshot doc) {
-    if (isViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); }
+    if (isViewOnce && !_antiViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); }
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(backgroundColor: Colors.black, appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(isViewOnce ? 'Sekali Lihat' : 'Foto')), body: Center(child: InteractiveViewer(panEnabled: true, child: Image.network(imageUrl))))));
   }
 
@@ -386,7 +394,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
                   else Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
                   if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
-                  Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? Colors.blue : Colors.grey)]]),
+                  Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),
                 ]))),
               );
             });

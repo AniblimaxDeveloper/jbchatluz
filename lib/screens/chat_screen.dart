@@ -51,13 +51,18 @@ class _ChatScreenState extends State<ChatScreen> {
   String _autoReplyMsg = "";
   StreamSubscription? _messageListener;
   StreamSubscription? _typingListener;
+  StreamSubscription? _roomListener;
   int _disappearingDuration = 0;
 
   Map<String, dynamic>? _replyTo;
+  Map<String, dynamic>? _pinnedMessage;
   bool _isOtherTyping = false;
   Timer? _typingTimer;
   bool _isMeTyping = false;
   bool _showScrollToBottom = false;
+  
+  bool _isBlockedByMe = false;
+  bool _hasBlockedMe = false;
 
   @override
   void initState() {
@@ -66,11 +71,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _markMessagesAsRead();
     _loadModSettings();
     _listenToTyping();
+    _listenToRoomData();
+    _checkBlockStatus();
+    
     _scrollController.addListener(() {
       if (_scrollController.hasClients) {
-        setState(() {
-          _showScrollToBottom = _scrollController.offset > 500; // Tampilkan tombol jika scroll ke atas
-        });
+        setState(() { _showScrollToBottom = _scrollController.offset > 500; });
       }
     });
   }
@@ -79,11 +85,28 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _messageListener?.cancel();
     _typingListener?.cancel();
+    _roomListener?.cancel();
     _typingTimer?.cancel();
     _recorder.dispose();
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkBlockStatus() async {
+    if (_otherUid.isEmpty) return;
+    final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
+    final otherDoc = await FirebaseFirestore.instance.collection('users').doc(_otherUid).get();
+    final myBlocked = (myDoc.data()?['blockedUsers'] as List?) ?? [];
+    final otherBlocked = (otherDoc.data()?['blockedUsers'] as List?) ?? [];
+    setState(() { _isBlockedByMe = myBlocked.contains(_otherUid); _hasBlockedMe = otherBlocked.contains(myUid); });
+  }
+
+  void _listenToRoomData() {
+    if (widget.roomId == 'global') return;
+    _roomListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).snapshots().listen((snap) {
+      if (snap.exists) { final data = snap.data()!; setState(() { _pinnedMessage = data['pinnedMessage'] as Map<String, dynamic>?; }); }
+    });
   }
 
   void _listenToTyping() {
@@ -100,16 +123,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _onTextChanged(String text) {
-    if (widget.roomId == 'global') return;
-    if (!_isMeTyping && text.isNotEmpty) {
-      _isMeTyping = true;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': true});
-    }
+    if (widget.roomId == 'global' || _isBlockedByMe || _hasBlockedMe) return;
+    if (!_isMeTyping && text.isNotEmpty) { _isMeTyping = true; FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': true}); }
     _typingTimer?.cancel();
-    _typingTimer = Timer(const Duration(seconds: 2), () {
-      _isMeTyping = false;
-      FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': false});
-    });
+    _typingTimer = Timer(const Duration(seconds: 2), () { _isMeTyping = false; FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'typing.$myUid': false}); });
   }
 
   Future<void> _loadModSettings() async {
@@ -117,13 +134,10 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _isAntiDelete = prefs.getBool('mod_anti_delete') ?? false;
       _isAutoReply = prefs.getBool('mod_auto_reply') ?? false;
-      _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
       _antiViewOnce = prefs.getBool('mod_anti_viewonce') ?? false;
+      _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
       final tickStr = prefs.getString('mod_tick_color') ?? 'blue';
-      if (tickStr == 'blue') _tickColor = Colors.blue;
-      else if (tickStr == 'grey') _tickColor = Colors.grey;
-      else if (tickStr == 'purple') _tickColor = Colors.purple;
-      else if (tickStr == 'green') _tickColor = Colors.green;
+      if (tickStr == 'blue') _tickColor = Colors.blue; else if (tickStr == 'grey') _tickColor = Colors.grey; else if (tickStr == 'purple') _tickColor = Colors.purple; else if (tickStr == 'green') _tickColor = Colors.green;
     });
     _setupAutoReply();
   }
@@ -141,10 +155,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadReceiverProfile() async {
-    if (widget.roomId == 'global') {
-      setState(() { _otherName = widget.roomName; _otherStatus = 'Ruang publik'; _roomType = 'global'; });
-      return;
-    }
+    if (widget.roomId == 'global') { setState(() { _otherName = widget.roomName; _otherStatus = 'Ruang publik'; _roomType = 'global'; }); return; }
     final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
     if (roomDoc.exists) {
       final type = roomDoc.data()!['type'];
@@ -164,9 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           });
         }
-      } else {
-        setState(() { _otherName = roomDoc.data()!['name'] ?? widget.roomName; _otherStatus = 'Grup'; });
-      }
+      } else { setState(() { _otherName = roomDoc.data()!['name'] ?? widget.roomName; _otherStatus = 'Grup'; }); }
     }
   }
 
@@ -186,11 +195,16 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _disappearingDuration = durationInMillis);
   }
 
-  void _logCall(bool isVideo) async {
-    if (_otherUid.isNotEmpty) { await FirebaseFirestore.instance.collection('call_logs').add({'callerId': myUid, 'receiverId': _otherUid, 'type': isVideo ? 'video' : 'voice', 'status': 'outgoing', 'timestamp': FieldValue.serverTimestamp()}); }
+  void _logCall(bool isVideo) async { if (_otherUid.isNotEmpty) { await FirebaseFirestore.instance.collection('call_logs').add({'callerId': myUid, 'receiverId': _otherUid, 'type': isVideo ? 'video' : 'voice', 'status': 'outgoing', 'timestamp': FieldValue.serverTimestamp()}); } }
+
+  Future<void> _clearChat() async {
+    final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').get();
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in snapshot.docs) { batch.delete(doc.reference); }
+    await batch.commit();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Riwayat chat dibersihkan.')));
   }
 
-  // FITUR: EKSPOR CHAT
   Future<void> _exportChat() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
@@ -202,17 +216,15 @@ class _ChatScreenState extends State<ChatScreen> {
         final text = data['type'] == 'text' ? data['text'] : '[Media: ${data['type']}]';
         content += '[$time] $sender: $text\n';
       }
-
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/chat_export.txt');
       await file.writeAsString(content);
       await OpenFilex.open(file.path);
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e')));
-    }
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
   Future<void> _showAttachmentMenu() async {
+    if (_isBlockedByMe || _hasBlockedMe) return;
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.image, color: Colors.blue), title: const Text('Galeri / Foto'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, false); }),
       ListTile(leading: const Icon(Icons.visibility, color: Colors.purple), title: const Text('Foto Sekali Lihat (View Once)'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, true); }),
@@ -288,6 +300,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _sendMessage() async {
+    if (_isBlockedByMe || _hasBlockedMe) return;
     final text = _msgController.text.trim(); if (text.isEmpty) return; _msgController.clear();
     Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'text', 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo});
@@ -307,6 +320,7 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
+      ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
@@ -354,13 +368,24 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           actions: [
             PopupMenuButton<String>(icon: const Icon(Icons.timer), onSelected: (val) { if (val == '0') _setDisappearingMessages(0); if (val == '60000') _setDisappearingMessages(60000); if (val == '3600000') _setDisappearingMessages(3600000); if (val == '86400000') _setDisappearingMessages(86400000); }, itemBuilder: (context) => [const PopupMenuItem(value: '0', child: Text('Nonaktifkan')), const PopupMenuItem(value: '60000', child: Text('1 Menit')), const PopupMenuItem(value: '3600000', child: Text('1 Jam')), const PopupMenuItem(value: '86400000', child: Text('1 Hari'))]),
-            IconButton(icon: const Icon(Icons.videocam), onPressed: () { _logCall(true); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true))); }),
-            IconButton(icon: const Icon(Icons.call), onPressed: () { _logCall(false); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false))); }),
-            PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) { if (val == 'export') _exportChat(); }, itemBuilder: (context) => [const PopupMenuItem(value: 'export', child: Text('Ekspor Chat'))]),
+            IconButton(icon: const Icon(Icons.videocam), onPressed: () { if (!_isBlockedByMe && !_hasBlockedMe) { _logCall(true); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: true))); } }),
+            IconButton(icon: const Icon(Icons.call), onPressed: () { if (!_isBlockedByMe && !_hasBlockedMe) { _logCall(false); Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelName: widget.roomId, isVideoCall: false))); } }),
+            PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) { if (val == 'export') _exportChat(); if (val == 'clear') _clearChat(); }, itemBuilder: (context) => [const PopupMenuItem(value: 'export', child: Text('Ekspor Chat')), const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat'))]),
           ],
         ),
         body: Column(children: [
           if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
+          
+          if (_pinnedMessage != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), color: isDark ? const Color(0xFF1F2C34) : Colors.white,
+              child: Row(children: [
+                const Icon(Icons.push_pin, color: Color(0xFF25D366), size: 20), const SizedBox(width: 8),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Pesan Disematkan', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF25D366), fontSize: 12)), Text(_pinnedMessage!['text'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13))])),
+                IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': FieldValue.delete()}); }),
+              ]),
+            ),
+
           Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(), builder: (context, snapshot) {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
             final now = DateTime.now();
@@ -377,12 +402,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 alignment: isMe ? Alignment.centerRight : Alignment.centerLeft, 
                 child: GestureDetector(
                   onLongPress: () => _showMessageOptions(doc, isMe, displayText, data),
-                  // FITUR SWIPE TO REPLY
-                  onHorizontalDragEnd: (details) {
-                    if (details.primaryVelocity! > 0) { // Geser ke kanan
-                      setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']});
-                    }
-                  },
+                  onHorizontalDragEnd: (details) { if (details.primaryVelocity! > 0) { setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']}); } },
                   child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                   if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
@@ -399,27 +419,23 @@ class _ChatScreenState extends State<ChatScreen> {
               );
             });
           })),
-          if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
-              IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
-              IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
-              Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
-            ]))),
-            const SizedBox(width: 8),
-            GestureDetector(onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null, onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null, child: CircleAvatar(backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366), radius: 24, child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)))),
-          ])),
+          
+          if (_isBlockedByMe || _hasBlockedMe)
+            Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: Text(_isBlockedByMe ? 'Anda telah memblokir kontak ini. Buka blokir di Info Kontak.' : 'Anda tidak dapat mengirim pesan ke kontak ini.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)))
+          else ...[
+            if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
+                IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
+                IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
+                Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
+              ]))),
+              const SizedBox(width: 8),
+              GestureDetector(onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null, onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null, child: CircleAvatar(backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366), radius: 24, child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)))),
+            ])),
+          ],
         ]),
-        // TOMBOL SCROLL TO BOTTOM
-        floatingActionButton: _showScrollToBottom 
-          ? FloatingActionButton.small(
-              onPressed: () {
-                _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-              },
-              backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white,
-              child: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF25D366)),
-            )
-          : null,
+        floatingActionButton: _showScrollToBottom ? FloatingActionButton.small(onPressed: () { _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }, backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white, child: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF25D366))) : null,
       );
     });
   }

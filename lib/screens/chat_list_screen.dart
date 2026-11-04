@@ -13,6 +13,8 @@ import 'starred_messages_screen.dart';
 import 'create_group_screen.dart';
 import 'add_contact_screen.dart';
 import 'contacts_screen.dart';
+import 'broadcast_screen.dart';
+import 'linked_devices_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});

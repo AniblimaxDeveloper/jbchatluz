@@ -27,6 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _antiViewOnce = false;
   bool _hideRecording = false;
   String _tickColor = 'blue';
+  bool _autoDownloadImage = true;
+  bool _autoDownloadAudio = true;
 
   @override
   void initState() {
@@ -51,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _antiViewOnce = prefs.getBool('mod_anti_viewonce') ?? false;
       _hideRecording = prefs.getBool('mod_hide_recording') ?? false;
       _tickColor = prefs.getString('mod_tick_color') ?? 'blue';
+      _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
+      _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
     });
   }
 
@@ -103,6 +107,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
           ListTile(leading: const Icon(Icons.check_circle, color: Colors.blue), title: Text('Warna Centang', style: TextStyle(color: textColor)), subtitle: Text(_tickColor.toUpperCase()), trailing: const Icon(Icons.chevron_right), onTap: _showTickColorPicker),
           
+          const Divider(),
+          Padding(padding: const EdgeInsets.all(16), child: Text('Unduhan Media', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          SwitchListTile(secondary: const Icon(Icons.image, color: Colors.green), title: Text('Auto-Download Foto', style: TextStyle(color: textColor)), value: _autoDownloadImage, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('auto_download_image', val); setState(() => _autoDownloadImage = val); }),
+          SwitchListTile(secondary: const Icon(Icons.audiotrack, color: Colors.orange), title: Text('Auto-Download Audio', style: TextStyle(color: textColor)), value: _autoDownloadAudio, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('auto_download_audio', val); setState(() => _autoDownloadAudio = val); }),
+
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.lock), title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _setPin),

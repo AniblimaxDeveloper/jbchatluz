@@ -336,14 +336,41 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  // FITUR BARU: INFO PESAN
+  void _showMessageInfo(DocumentSnapshot doc, Map<String, dynamic> data) {
+    final time = data['timestamp'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['timestamp'] as Timestamp).toDate()) : 'Tidak diketahui';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Info Pesan'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dikirim'), subtitle: Text(time)),
+            if (data['status'] == 'read') ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dibaca'), subtitle: const Text('Baru saja')),
+          ],
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+      ),
+    );
+  }
+
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text, Map<String, dynamic> data) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
+      // TOMBOL INFO PESAN
+      ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
+      
       if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
+      
+      // TOMBOL BAGIKAN MEDIA (FITUR BARU)
+      if (data['type'] != 'text' && data['type'] != 'poll') 
+        ListTile(leading: const Icon(Icons.share, color: Colors.green), title: const Text('Bagikan ke...', style: TextStyle(color: Colors.green)), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
+      
       ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
-      ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
       if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),

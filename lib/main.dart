@@ -13,6 +13,7 @@ import 'notification_service.dart';
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 final ValueNotifier<String> fontNotifier = ValueNotifier("Default");
 final ValueNotifier<Color> bubbleColorNotifier = ValueNotifier(const Color(0xFFD9FDD3));
+final ValueNotifier<double> fontSizeNotifier = ValueNotifier(1.0);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,7 @@ void main() async {
   themeNotifier.value = (prefs.getBool('darkMode') ?? false) ? ThemeMode.dark : ThemeMode.light;
   fontNotifier.value = prefs.getString('app_font') ?? "Default";
   bubbleColorNotifier.value = Color(prefs.getInt('bubble_color') ?? 0xFFD9FDD3);
+  fontSizeNotifier.value = prefs.getDouble('font_size_scale') ?? 1.0;
 
   runApp(const JBChatLuzApp());
 }
@@ -78,7 +80,7 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
       final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
       if (!canAuthenticate) return false;
-      return await _auth.authenticate(localizedReason: 'Pindai sidik jari atau wajah Anda untuk membuka JBchatluz', options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true));
+      return await _auth.authenticate(localizedReason: 'Pindai sidik jari untuk membuka JBchatluz', options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true));
     } catch (e) { return false; }
   }
 
@@ -95,12 +97,20 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
     if (_isCheckingLock) return const MaterialApp(home: Scaffold(body: Center(child: CircularProgressIndicator())));
     return ValueListenableBuilder<ThemeMode>(valueListenable: themeNotifier, builder: (context, currentMode, child) {
       return ValueListenableBuilder<String>(valueListenable: fontNotifier, builder: (context, currentFont, child) {
-        return MaterialApp(
-          title: 'JBchatluz', debugShowCheckedModeBanner: false, themeMode: currentMode,
-          theme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.light, textTheme: _getTextTheme(currentFont)),
-          darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF0B141A), textTheme: _getTextTheme(currentFont)),
-          home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false), authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
-        );
+        return ValueListenableBuilder<double>(valueListenable: fontSizeNotifier, builder: (context, currentSize, child) {
+          return MaterialApp(
+            title: 'JBchatluz', debugShowCheckedModeBanner: false, themeMode: currentMode,
+            theme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.light, textTheme: _getTextTheme(currentFont)),
+            darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF0B141A), textTheme: _getTextTheme(currentFont)),
+            builder: (context, child) {
+              return MediaQuery(
+                data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentSize)),
+                child: child!,
+              );
+            },
+            home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false), authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
+          );
+        });
       });
     });
   }

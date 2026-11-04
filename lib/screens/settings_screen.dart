@@ -29,12 +29,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _tickColor = 'blue';
   bool _autoDownloadImage = true;
   bool _autoDownloadAudio = true;
+  double _fontSize = 1.0;
 
   @override
-  void initState() {
-    super.initState();
-    _loadSettings();
-  }
+  void initState() { super.initState(); _loadSettings(); }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -55,42 +53,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _tickColor = prefs.getString('mod_tick_color') ?? 'blue';
       _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
       _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
+      _fontSize = prefs.getDouble('font_size_scale') ?? 1.0;
     });
   }
 
-  void _setPin() {
-    final pinController = TextEditingController();
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Atur PIN"), content: TextField(controller: pinController, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: "PIN Baru")), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")), TextButton(onPressed: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_pin', pinController.text.trim()); if (context.mounted) Navigator.pop(context); }, child: const Text("Simpan"))]));
-  }
-
-  void _removePin() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('app_pin');
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN dihapus.")));
-  }
-
-  void _pickWallpaper() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
-    if (image != null) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('wallpaper_path', image.path);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah.")));
-    }
-  }
-
-  void _showFontPicker() {
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Pilih Font"), content: Column(mainAxisSize: MainAxisSize.min, children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) => RadioListTile<String>(title: Text(font), value: font, groupValue: fontNotifier.value, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_font', val); fontNotifier.value = val; if (context.mounted) Navigator.pop(context); } })).toList())));
-  }
-
-  void _showBubbleColorPicker() {
-    final colors = [const Color(0xFFD9FDD3), const Color(0xFFD2E8FF), const Color(0xFFFFE4E1), const Color(0xFFF0E6FF)];
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Warna Bubble Chat"), content: Wrap(spacing: 10, children: colors.map((color) => GestureDetector(onTap: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setInt('bubble_color', color.value); bubbleColorNotifier.value = color; if (context.mounted) Navigator.pop(context); }, child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey))))).toList())));
-  }
-
-  void _showTickColorPicker() {
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Warna Centang"), content: Column(mainAxisSize: MainAxisSize.min, children: ['blue', 'grey', 'purple', 'green'].map((color) => RadioListTile<String>(title: Text(color.toUpperCase()), value: color, groupValue: _tickColor, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('mod_tick_color', val); setState(() => _tickColor = val); if (context.mounted) Navigator.pop(context); } })).toList())));
-  }
+  void _setPin() { final pinController = TextEditingController(); showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Atur PIN"), content: TextField(controller: pinController, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: "PIN Baru")), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")), TextButton(onPressed: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_pin', pinController.text.trim()); if (context.mounted) Navigator.pop(context); }, child: const Text("Simpan"))])); }
+  void _removePin() async { final prefs = await SharedPreferences.getInstance(); await prefs.remove('app_pin'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PIN dihapus."))); }
+  void _pickWallpaper() async { final picker = ImagePicker(); final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50); if (image != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('wallpaper_path', image.path); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah."))); } }
+  void _showFontPicker() { showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Pilih Font"), content: Column(mainAxisSize: MainAxisSize.min, children: ["Default", "Poppins", "Roboto", "Lora", "Oswald"].map((font) => RadioListTile<String>(title: Text(font), value: font, groupValue: fontNotifier.value, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('app_font', val); fontNotifier.value = val; if (context.mounted) Navigator.pop(context); } })).toList()))); }
+  void _showBubbleColorPicker() { final colors = [const Color(0xFFD9FDD3), const Color(0xFFD2E8FF), const Color(0xFFFFE4E1), const Color(0xFFF0E6FF)]; showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Warna Bubble Chat"), content: Wrap(spacing: 10, children: colors.map((color) => GestureDetector(onTap: () async { final prefs = await SharedPreferences.getInstance(); await prefs.setInt('bubble_color', color.value); bubbleColorNotifier.value = color; if (context.mounted) Navigator.pop(context); }, child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.grey))))).toList()))); }
+  void _showTickColorPicker() { showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Warna Centang"), content: Column(mainAxisSize: MainAxisSize.min, children: ['blue', 'grey', 'purple', 'green'].map((color) => RadioListTile<String>(title: Text(color.toUpperCase()), value: color, groupValue: _tickColor, onChanged: (val) async { if (val != null) { final prefs = await SharedPreferences.getInstance(); await prefs.setString('mod_tick_color', val); setState(() => _tickColor = val); if (context.mounted) Navigator.pop(context); } })).toList()))); }
 
   @override
   Widget build(BuildContext context) {
@@ -102,9 +74,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         children: [
           SwitchListTile(secondary: const Icon(Icons.dark_mode), title: Text('Mode Gelap', style: TextStyle(color: textColor)), value: _isDarkMode, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('darkMode', val); themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light; setState(() => _isDarkMode = val); }),
+          
+          // SLIDER UKURAN FONT
+          ListTile(leading: const Icon(Icons.format_size), title: Text('Ukuran Teks', style: TextStyle(color: textColor)), subtitle: Slider(
+            value: _fontSize, min: 0.8, max: 1.5, divisions: 7,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) {
+              setState(() => _fontSize = val);
+              fontSizeNotifier.value = val;
+              SharedPreferences.getInstance().then((prefs) => prefs.setDouble('font_size_scale', val));
+            },
+          )),
+
           ListTile(leading: const Icon(Icons.palette), title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _showBubbleColorPicker),
           ListTile(leading: const Icon(Icons.font_download), title: Text('Ganti Font', style: TextStyle(color: textColor)), subtitle: Text('Font: ${fontNotifier.value}'), trailing: const Icon(Icons.chevron_right), onTap: _showFontPicker),
-          ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
+          ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat (Global)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
           ListTile(leading: const Icon(Icons.check_circle, color: Colors.blue), title: Text('Warna Centang', style: TextStyle(color: textColor)), subtitle: Text(_tickColor.toUpperCase()), trailing: const Icon(Icons.chevron_right), onTap: _showTickColorPicker),
           
           const Divider(),

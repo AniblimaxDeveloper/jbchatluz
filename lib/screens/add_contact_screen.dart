@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_screen.dart';
+import 'join_group_screen.dart';
 
 class AddContactScreen extends StatefulWidget {
   const AddContactScreen({super.key});
@@ -33,12 +34,10 @@ class _AddContactScreenState extends State<AddContactScreen> {
       final targetUid = targetUser.id;
       final targetName = targetUser.data()['displayName'] ?? 'Pengguna';
 
-      // 1. SIMPAN KE KONTAK (Buku Telepon)
       await FirebaseFirestore.instance.collection('users').doc(myUid).update({
         'contacts': FieldValue.arrayUnion([targetUid]),
       });
 
-      // 2. Cari atau Buat Room Private
       final roomQuery = await FirebaseFirestore.instance.collection('rooms')
           .where('type', isEqualTo: 'private')
           .where('members', arrayContains: myUid)
@@ -47,18 +46,13 @@ class _AddContactScreenState extends State<AddContactScreen> {
       String roomId = '';
       for (var doc in roomQuery.docs) {
         final members = doc.data()['members'] as List;
-        if (members.contains(targetUid)) {
-          roomId = doc.id;
-          break;
-        }
+        if (members.contains(targetUid)) { roomId = doc.id; break; }
       }
 
       if (roomId.isEmpty) {
         final newRoom = await FirebaseFirestore.instance.collection('rooms').add({
-          'type': 'private',
-          'members': [myUid, targetUid],
-          'lastMessage': 'Chat pribadi dimulai',
-          'lastMessageTime': FieldValue.serverTimestamp(),
+          'type': 'private', 'members': [myUid, targetUid],
+          'lastMessage': 'Chat pribadi dimulai', 'lastMessageTime': FieldValue.serverTimestamp(),
         });
         roomId = newRoom.id;
       }
@@ -76,10 +70,14 @@ class _AddContactScreenState extends State<AddContactScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black;
+
     return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF0B141A) : Colors.white,
       appBar: AppBar(
         title: const Text('Tambah Kontak Baru'),
-        backgroundColor: const Color(0xFF075E54),
+        backgroundColor: isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54),
         foregroundColor: Colors.white,
       ),
       body: Padding(
@@ -103,6 +101,17 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Simpan & Mulai Chat'),
               ),
             ),
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 16),
+            const Text('Punya Link Undangan Grup?', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const JoinGroupScreen())),
+              icon: const Icon(Icons.link, color: Color(0xFF25D366)),
+              label: const Text('Gabung Grup via Link', style: TextStyle(color: Color(0xFF25D366))),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+            )
           ],
         ),
       ),

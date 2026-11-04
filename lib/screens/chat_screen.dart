@@ -60,7 +60,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _typingTimer;
   bool _isMeTyping = false;
   bool _showScrollToBottom = false;
-  
   bool _isBlockedByMe = false;
   bool _hasBlockedMe = false;
 
@@ -75,9 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _checkBlockStatus();
     
     _scrollController.addListener(() {
-      if (_scrollController.hasClients) {
-        setState(() { _showScrollToBottom = _scrollController.offset > 500; });
-      }
+      if (_scrollController.hasClients) { setState(() { _showScrollToBottom = _scrollController.offset > 500; }); }
     });
   }
 
@@ -316,10 +313,34 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _votePoll(String docId, int optionIndex, Map<String, dynamic> votes) async { votes[myUid] = optionIndex; await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').doc(docId).update({'votes': votes}); }
 
+  void _editMessage(DocumentSnapshot doc, String currentText) {
+    final controller = TextEditingController(text: currentText);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Pesan'),
+        content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(
+            onPressed: () async {
+              if (controller.text.trim().isNotEmpty) {
+                await doc.reference.update({'text': controller.text.trim(), 'isEdited': true});
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text, Map<String, dynamic> data) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
+      if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
       ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
@@ -393,7 +414,7 @@ class _ChatScreenState extends State<ChatScreen> {
             return ListView.builder(controller: _scrollController, reverse: true, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), itemCount: docs.length, itemBuilder: (context, index) {
               final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
               final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-              final isDeleted = data['isDeleted'] == true; final type = data['type'];
+              final isDeleted = data['isDeleted'] == true; final type = data['type']; final isEdited = data['isEdited'] == true;
               final replyTo = data['replyTo']; final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
               String displayText = data['text'] ?? '';
               if (isDeleted && !isMe) { displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus'; }
@@ -412,7 +433,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                   else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
                   else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
-                  else Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
+                  else Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
+                    if (isEdited) const Padding(padding: EdgeInsets.only(left: 4), child: Text('(diedit)', style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic))),
+                  ]),
                   if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
                   Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),
                 ]))),

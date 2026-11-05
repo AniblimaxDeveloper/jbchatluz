@@ -15,7 +15,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
 
   Future<void> _startChat(String targetUid, String name) async {
-    // Cari room private
     final roomQuery = await FirebaseFirestore.instance.collection('rooms')
         .where('type', isEqualTo: 'private')
         .where('members', arrayContains: myUid).get();
@@ -34,9 +33,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
       roomId = newRoom.id;
     }
 
-    if (mounted) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: name)));
-    }
+    if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: name)));
+  }
+
+  Future<void> _deleteContact(String uid, String name) async {
+    await FirebaseFirestore.instance.collection('users').doc(myUid).update({
+      'contacts': FieldValue.arrayRemove([uid]),
+    });
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$name telah dihapus dari kontak')));
   }
 
   @override
@@ -58,9 +62,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           final myData = mySnap.data!.data() as Map<String, dynamic>?;
           final List<String> contactUids = List<String>.from(myData?['contacts'] ?? []);
 
-          if (contactUids.isEmpty) {
-            return const Center(child: Text('Belum ada kontak yang disimpan.', style: TextStyle(color: Colors.grey)));
-          }
+          if (contactUids.isEmpty) return const Center(child: Text('Belum ada kontak yang disimpan.', style: TextStyle(color: Colors.grey)));
 
           return ListView.builder(
             itemCount: contactUids.length,
@@ -84,6 +86,22 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     title: Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
                     subtitle: Text(about, style: const TextStyle(color: Colors.grey)),
                     onTap: () => _startChat(uid, name),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Hapus Kontak'),
+                            content: Text('Hapus $name dari daftar kontak Anda?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                              TextButton(onPressed: () { Navigator.pop(context); _deleteContact(uid, name); }, child: const Text('Hapus', style: TextStyle(color: Colors.red))),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   );
                 },
               );

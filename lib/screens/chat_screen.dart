@@ -316,6 +316,29 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
+  // FUNGSI YANG TADI HILANG (UNTUK LINK OTOMATIS)
+  List<TextSpan> _parseLinks(String text, TextStyle baseStyle) {
+    final List<TextSpan> spans = [];
+    final RegExp urlRegExp = RegExp(r'(https?://[^\s]+)');
+    int start = 0;
+    for (final Match match in urlRegExp.allMatches(text)) {
+      if (match.start > start) {
+        spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle));
+      }
+      final String url = match.group(0)!;
+      spans.add(TextSpan(
+        text: url,
+        style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline),
+        recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url)),
+      ));
+      start = match.end;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+    }
+    return spans;
+  }
+
   void _scheduleMessage() {
     final text = _msgController.text.trim();
     if (text.isEmpty) {
@@ -708,7 +731,6 @@ class _ChatScreenState extends State<ChatScreen> {
             else ...[
               if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
               
-              // UI BALASAN CEPAT
               if (_showQuickReplies)
                 Container(
                   height: 50, color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],

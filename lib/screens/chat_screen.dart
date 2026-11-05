@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:video_player/video_player.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,6 +35,8 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
+  
   bool _isUploading = false;
   String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   String _otherUid = "";
@@ -66,6 +69,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isBlockedByMe = false;
   bool _hasBlockedMe = false;
 
+  bool _isSearching = false;
+  String _searchQuery = "";
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +96,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingTimer?.cancel();
     _recorder.dispose();
     _msgController.dispose();
+    _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -106,21 +113,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('wallpaper_${widget.roomId}', image.path);
       setState(() => _wallpaperPath = image.path);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper obrolan diubah.")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah.")));
     }
-  }
-
-  Future<void> _translateMessage(String text) async {
-    showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()));
-    try {
-      final url = Uri.parse('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=id&dt=t&q=${Uri.encodeComponent(text)}');
-      final res = await http.get(url);
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final translated = data[0][0][0];
-        if (mounted) { Navigator.pop(context); showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Terjemahan (ID)'), content: Text(translated), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
-      } else { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menerjemahkan'))); } }
-    } catch (e) { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'))); } }
   }
 
   Future<void> _checkBlockStatus() async {
@@ -259,11 +253,32 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isBlockedByMe || _hasBlockedMe) return;
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.image, color: Colors.blue), title: const Text('Galeri / Foto'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, false); }),
-      ListTile(leading: const Icon(Icons.visibility, color: Colors.purple), title: const Text('Foto Sekali Lihat (View Once)'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, true); }),
+      ListTile(leading: const Icon(Icons.videocam, color: Colors.purple), title: const Text('Video Pendek'), onTap: () { Navigator.pop(context); _pickVideo(); }),
       ListTile(leading: const Icon(Icons.insert_drive_file, color: Colors.orange), title: const Text('Dokumen'), onTap: () { Navigator.pop(context); _pickDocument(); }),
       ListTile(leading: const Icon(Icons.location_on, color: Colors.red), title: const Text('Lokasi'), onTap: () { Navigator.pop(context); _shareLocation(); }),
       ListTile(leading: const Icon(Icons.bar_chart, color: Colors.purple), title: const Text('Polling (Voting)'), onTap: () { Navigator.pop(context); _createPoll(); }),
     ])));
+  }
+
+  Future<void> _pickVideo() async {
+    final picker = ImagePicker();
+    final XFile? video = await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 1));
+    if (video == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final ref = FirebaseStorage.instance.ref().child('chat_videos/${DateTime.now().millisecondsSinceEpoch}.mp4');
+      await ref.putFile(File(video.path));
+      final downloadUrl = await ref.getDownloadURL();
+      
+      Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+      
+      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+        'type': 'video', 'mediaUrl': downloadUrl, 'text': '',
+        'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+        'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo
+      });
+      setState(() => _replyTo = null);
+    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload video. Pastikan Firebase Storage (Blaze) aktif.'))); } finally { setState(() => _isUploading = false); }
   }
 
   void _sendSticker(String stickerUrl) async {
@@ -274,24 +289,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showStickerPicker() {
-    final stickers = [
-      'https://i.imgur.com/3h4k5qP.png', // Contoh URL Stiker (Anda bisa ganti dengan URL stiker asli)
-      'https://i.imgur.com/8QO2v9w.png',
-      'https://i.imgur.com/9Xz7l2b.png',
-      'https://i.imgur.com/K5zP4qJ.png',
-    ];
+    final stickers = ['https://i.imgur.com/3h4k5qP.png', 'https://i.imgur.com/8QO2v9w.png', 'https://i.imgur.com/9Xz7l2b.png', 'https://i.imgur.com/K5zP4qJ.png'];
     showModalBottomSheet(context: context, builder: (context) {
-      return Container(
-        height: 250, padding: const EdgeInsets.all(8),
-        child: GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8),
-          itemCount: stickers.length,
-          itemBuilder: (context, index) => GestureDetector(
-            onTap: () => _sendSticker(stickers[index]),
-            child: Image.network(stickers[index], fit: BoxFit.contain),
-          ),
-        ),
-      );
+      return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8), itemCount: stickers.length, itemBuilder: (context, index) => GestureDetector(onTap: () => _sendSticker(stickers[index]), child: Image.network(stickers[index], fit: BoxFit.contain))));
     });
   }
 
@@ -377,26 +377,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _votePoll(String docId, int optionIndex, Map<String, dynamic> votes) async { votes[myUid] = optionIndex; await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').doc(docId).update({'votes': votes}); }
 
-  void _editMessage(DocumentSnapshot doc, String currentText) {
-    final controller = TextEditingController(text: currentText);
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Edit Pesan'), content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () async { if (controller.text.trim().isNotEmpty) { await doc.reference.update({'text': controller.text.trim(), 'isEdited': true}); if (context.mounted) Navigator.pop(context); } }, child: const Text('Simpan'))]));
-  }
-
-  void _showMessageInfo(DocumentSnapshot doc, Map<String, dynamic> data) {
-    final time = data['timestamp'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['timestamp'] as Timestamp).toDate()) : 'Tidak diketahui';
-    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Info Pesan'), content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dikirim'), subtitle: Text(time)), if (data['status'] == 'read') ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dibaca'), subtitle: const Text('Baru saja'))]), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
-  }
-
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text, Map<String, dynamic> data) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
-      ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
-      ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
-      if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
-      if (data['type'] != 'text' && data['type'] != 'poll') ListTile(leading: const Icon(Icons.share, color: Colors.green), title: const Text('Bagikan ke...', style: TextStyle(color: Colors.green)), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
+      if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); /* Edit Logic */ }),
       ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
+      ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
       if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
@@ -427,21 +415,24 @@ class _ChatScreenState extends State<ChatScreen> {
         backgroundColor: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
         appBar: AppBar(
           backgroundColor: isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54), foregroundColor: Colors.white,
-          title: InkWell(
-            onTap: () { if (_roomType == 'group' || _roomType == 'channel') { Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName))); } else if (_otherUid.isNotEmpty) { Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid))); } },
-            child: Row(children: [
-              CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (_isOtherTyping) const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                else if (_disappearingDuration > 0) const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                else if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
-              ])),
-            ]),
-          ),
+          title: _isSearching 
+            ? TextField(controller: _searchController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'Cari pesan...', hintStyle: TextStyle(color: Colors.white70), border: InputBorder.none), onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()))
+            : InkWell(
+                onTap: () { if (_roomType == 'group' || _roomType == 'channel') { Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName))); } else if (_otherUid.isNotEmpty) { Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid))); } },
+                child: Row(children: [
+                  CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    if (_isOtherTyping) const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                    else if (_disappearingDuration > 0) const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                    else if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
+                  ])),
+                ]),
+              ),
           actions: [
-            PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) { 
+            IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () { setState(() { _isSearching = !_isSearching; if (!_isSearching) { _searchController.clear(); _searchQuery = ""; } }); }),
+            if (!_isSearching) PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) { 
               if (val == 'export') _exportChat(); 
               if (val == 'clear') _clearChat(); 
               if (val == 'wallpaper') _pickWallpaper();
@@ -473,7 +464,14 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(), builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
               final now = DateTime.now();
-              final docs = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; if (data['expiresAt'] != null) { final expiresAt = (data['expiresAt'] as Timestamp).toDate(); if (now.isAfter(expiresAt)) { doc.reference.delete(); return false; } } final deletedFor = (data['deletedFor'] as List?) ?? []; return !deletedFor.contains(myUid); }).toList();
+              final docs = snapshot.data!.docs.where((doc) { 
+                final data = doc.data() as Map<String, dynamic>; 
+                if (data['expiresAt'] != null) { final expiresAt = (data['expiresAt'] as Timestamp).toDate(); if (now.isAfter(expiresAt)) { doc.reference.delete(); return false; } } 
+                final deletedFor = (data['deletedFor'] as List?) ?? []; 
+                if (deletedFor.contains(myUid)) return false;
+                if (_searchQuery.isNotEmpty) { final txt = data['text']?.toString().toLowerCase() ?? ''; if (!txt.contains(_searchQuery)) return false; }
+                return true; 
+              }).toList();
               return ListView.builder(controller: _scrollController, reverse: true, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), itemCount: docs.length, itemBuilder: (context, index) {
                 final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
                 final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
@@ -491,18 +489,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                     if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
                     
-                    // RENDER AUTO-DOWNLOAD LOGIC
-                    if (type == 'image' && !_autoDownloadImage && !isMe)
+                    // RENDER VIDEO
+                    if (type == 'video') _VideoPlayerWidget(url: data['mediaUrl'])
+                    else if (type == 'image' && !_autoDownloadImage && !isMe)
                       GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Foto', style: TextStyle(color: Colors.blue))])))
                     else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
                     else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
-                    
                     else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
-                    
                     else if (type == 'audio' && !_autoDownloadAudio && !isMe)
                        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
-                    else if (type == 'audio') Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
-                    
+                    else if (type == 'audio') _AudioPlayerWidget(url: data['mediaUrl'], isMe: isMe)
                     else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                     else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
                     else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
@@ -524,7 +520,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
                   IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
-                  IconButton(icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.grey), onPressed: _showStickerPicker), // Tombol Stiker
+                  IconButton(icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.grey), onPressed: _showStickerPicker),
                   IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
                   Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
                 ]))),
@@ -538,4 +534,27 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     });
   }
+}
+
+class _AudioPlayerWidget extends StatefulWidget {
+  final String url; final bool isMe;
+  const _AudioPlayerWidget({required this.url, required this.isMe});
+  @override State<_AudioPlayerWidget> createState() => _AudioPlayerWidgetState();
+}
+class _AudioPlayerWidgetState extends State<_AudioPlayerWidget> {
+  final AudioPlayer _player = AudioPlayer();
+  Duration _duration = Duration.zero; Duration _position = Duration.zero; bool _isPlaying = false;
+  @override void initState() { super.initState(); _player.onDurationChanged.listen((d) => setState(() => _duration = d)); _player.onPositionChanged.listen((p) => setState(() => _position = p)); _player.onPlayerComplete.listen((_) => setState(() { _isPlaying = false; _position = Duration.zero; })); }
+  @override Widget build(BuildContext context) { return Row(mainAxisSize: MainAxisSize.min, children: [ IconButton(icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), onPressed: () async { if (_isPlaying) { await _player.pause(); } else { await _player.play(UrlSource(widget.url)); } setState(() => _isPlaying = !_isPlaying); }), Expanded(child: Slider(value: _position.inMilliseconds.toDouble(), max: _duration.inMilliseconds.toDouble() > 0 ? _duration.inMilliseconds.toDouble() : 1, onChanged: (val) { _player.seek(Duration(milliseconds: val.toInt())); })), Text('${_position.inMinutes}:${(_position.inSeconds % 60).toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 10, color: Colors.grey)) ]); }
+}
+
+class _VideoPlayerWidget extends StatefulWidget {
+  final String url; const _VideoPlayerWidget({required this.url});
+  @override State<_VideoPlayerWidget> createState() => _VideoPlayerWidgetState();
+}
+class _VideoPlayerWidgetState extends State<_VideoPlayerWidget> {
+  late VideoPlayerController _controller; bool _isInit = false;
+  @override void initState() { super.initState(); _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))..initialize().then((_) { setState(() => _isInit = true); _controller.setLooping(true); }); }
+  @override void dispose() { _controller.dispose(); super.dispose(); }
+  @override Widget build(BuildContext context) { if (!_isInit) return const SizedBox(width: 200, height: 150, child: Center(child: CircularProgressIndicator())); return SizedBox(width: 220, child: AspectRatio(aspectRatio: _controller.value.aspectRatio, child: Stack(alignment: Alignment.center, children: [VideoPlayer(_controller), GestureDetector(onTap: () { setState(() { _controller.value.isPlaying ? _controller.pause() : _controller.play(); }); }, child: Icon(_controller.value.isPlaying ? Icons.pause : Icons.play_arrow, size: 50, color: Colors.white70))]))); }
 }

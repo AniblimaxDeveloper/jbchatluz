@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import '../main.dart';
 import 'storage_manager_screen.dart';
 import 'fake_chat_screen.dart';
+import 'blocked_contacts_screen.dart';
+import 'backup_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -73,9 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         children: [
           SwitchListTile(secondary: const Icon(Icons.dark_mode), title: Text('Mode Gelap', style: TextStyle(color: textColor)), value: _isDarkMode, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('darkMode', val); themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light; setState(() => _isDarkMode = val); }),
-          
           ListTile(leading: const Icon(Icons.format_size), title: Text('Ukuran Teks', style: TextStyle(color: textColor)), subtitle: Slider(value: _fontSize, min: 0.8, max: 1.5, divisions: 7, activeColor: const Color(0xFF25D366), onChanged: (val) { setState(() => _fontSize = val); fontSizeNotifier.value = val; SharedPreferences.getInstance().then((prefs) => prefs.setDouble('font_size_scale', val)); })),
-
           ListTile(leading: const Icon(Icons.palette), title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _showBubbleColorPicker),
           ListTile(leading: const Icon(Icons.font_download), title: Text('Ganti Font', style: TextStyle(color: textColor)), subtitle: Text('Font: ${fontNotifier.value}'), trailing: const Icon(Icons.chevron_right), onTap: _showFontPicker),
           ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat (Global)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
@@ -84,10 +84,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Alat & Penyimpanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.storage, color: Colors.orange), title: Text('Penyimpanan dan Data', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StorageManagerScreen()))),
+          ListTile(leading: const Icon(Icons.backup, color: Colors.blue), title: Text('Cadangkan Data (Backup)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupScreen()))),
           ListTile(leading: const Icon(Icons.chat_bubble, color: Colors.purple), title: Text('Fake Chat Generator (MOD)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeChatScreen()))),
-          
+
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          ListTile(leading: const Icon(Icons.block, color: Colors.red), title: Text('Kontak Diblokir', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedContactsScreen()))),
           ListTile(leading: const Icon(Icons.lock), title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _setPin),
           ListTile(leading: const Icon(Icons.lock_open, color: Colors.red), title: const Text('Hapus PIN', style: TextStyle(color: Colors.red)), onTap: _removePin),
           

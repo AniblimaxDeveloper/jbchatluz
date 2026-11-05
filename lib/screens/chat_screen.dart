@@ -121,7 +121,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR BARU: LIHAT FOTO PROFIL LAYAR PENUH
   void _openProfilePicture(String photoData) {
     if (photoData.isEmpty) return;
     ImageProvider imageProvider;
@@ -287,27 +286,67 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
-  // FITUR BARU: TAUTAN OTOMATIS (RICH TEXT)
-  List<TextSpan> _parseLinks(String text, TextStyle baseStyle) {
-    final List<TextSpan> spans = [];
-    final RegExp urlRegExp = RegExp(r'(https?://[^\s]+)');
-    int start = 0;
-    for (final Match match in urlRegExp.allMatches(text)) {
-      if (match.start > start) {
-        spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle));
-      }
-      final String url = match.group(0)!;
-      spans.add(TextSpan(
-        text: url,
-        style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline),
-        recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url)),
-      ));
-      start = match.end;
+  // FITUR BARU: JADWALKAN PESAN
+  void _scheduleMessage() {
+    final text = _msgController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ketik pesan terlebih dahulu sebelum menjadwalkan.')));
+      return;
     }
-    if (start < text.length) {
-      spans.add(TextSpan(text: text.substring(start), style: baseStyle));
-    }
-    return spans;
+
+    DateTime selectedDate = DateTime.now().add(const Duration(minutes: 5));
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Jadwalkan Pesan'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Pilih waktu pengiriman pesan:'),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.calendar_today),
+              title: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
+              onTap: () async {
+                final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365)));
+                if (picked != null) selectedDate = DateTime(picked.year, picked.month, picked.day, selectedDate.hour, selectedDate.minute);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.access_time),
+              title: Text(DateFormat('HH:mm').format(selectedDate)),
+              onTap: () async {
+                final picked = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(selectedDate));
+                if (picked != null) selectedDate = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              _msgController.clear();
+              
+              // Simpan ke Firestore (Koleksi antrean)
+              await FirebaseFirestore.instance.collection('scheduled_messages').add({
+                'roomId': widget.roomId,
+                'text': text,
+                'senderId': myUid,
+                'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+                'scheduledTime': Timestamp.fromDate(selectedDate),
+                'status': 'pending',
+              });
+
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pesan dijadwalkan pada ${DateFormat('dd/MM HH:mm').format(selectedDate)}')));
+            },
+            child: const Text('Jadwalkan'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showAttachmentMenu() async {
@@ -320,6 +359,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ListTile(leading: const Icon(Icons.insert_drive_file, color: Colors.orange), title: const Text('Dokumen'), onTap: () { Navigator.pop(context); _pickDocument(); }),
       ListTile(leading: const Icon(Icons.location_on, color: Colors.red), title: const Text('Lokasi'), onTap: () { Navigator.pop(context); _shareLocation(); }),
       ListTile(leading: const Icon(Icons.bar_chart, color: Colors.purple), title: const Text('Polling (Voting)'), onTap: () { Navigator.pop(context); _createPoll(); }),
+      ListTile(leading: const Icon(Icons.schedule, color: Colors.blueGrey), title: const Text('Jadwalkan Pesan'), onTap: () { Navigator.pop(context); _scheduleMessage(); }),
     ])));
   }
 

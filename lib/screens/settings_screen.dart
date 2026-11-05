@@ -7,7 +7,8 @@ import 'storage_manager_screen.dart';
 import 'fake_chat_screen.dart';
 import 'blocked_contacts_screen.dart';
 import 'backup_screen.dart';
-import 'cloud_backup_screen.dart'; // Import layar baru
+import 'cloud_backup_screen.dart';
+import 'fake_call_screen.dart'; // Import layar baru
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -87,7 +88,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(leading: const Icon(Icons.storage, color: Colors.orange), title: Text('Penyimpanan dan Data', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StorageManagerScreen()))),
           ListTile(leading: const Icon(Icons.backup, color: Colors.blue), title: Text('Cadangkan Data (Backup)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupScreen()))),
           ListTile(leading: const Icon(Icons.cloud, color: Colors.lightBlue), title: Text('Cloud Backup (Firebase)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CloudBackupScreen()))),
-          ListTile(leading: const Icon(Icons.chat_bubble, color: Colors.purple), title: Text('Fake Chat Generator (MOD)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeChatScreen()))),
+          ListTile(leading: const Icon(Icons.chat_bubble, color: Colors.purple), title: Text('Fake Chat Generator', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeChatScreen()))),
+          ListTile(leading: const Icon(Icons.phone_callback, color: Colors.redAccent), title: Text('Panggilan Palsu (Fake Call)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeCallScreen(callerName: 'Boss Kantor')))),
           
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),

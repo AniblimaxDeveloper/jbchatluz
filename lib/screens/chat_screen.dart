@@ -18,7 +18,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:gal/gal.dart'; // Library Simpan Galeri
+import 'package:gal/gal.dart';
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
@@ -122,7 +122,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR BARU: SIMPAN FOTO KE GALERI
   Future<void> _downloadMedia(String url) async {
     try {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mengunduh media...')));
@@ -325,6 +324,51 @@ class _ChatScreenState extends State<ChatScreen> {
     ]), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () async { Navigator.pop(context); _msgController.clear(); await FirebaseFirestore.instance.collection('scheduled_messages').add({'roomId': widget.roomId, 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'scheduledTime': Timestamp.fromDate(selectedDate), 'status': 'pending'}); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pesan dijadwalkan pada ${DateFormat('dd/MM HH:mm').format(selectedDate)}'))); }, child: const Text('Jadwalkan'))]));
   }
 
+  // FITUR BARU: BALAS PRIBADI (REPLY PRIVATELY)
+  Future<void> _replyPrivately(String senderId, String senderName) async {
+    final roomQuery = await FirebaseFirestore.instance.collection('rooms')
+        .where('type', isEqualTo: 'private')
+        .where('members', arrayContains: myUid).get();
+
+    String roomId = '';
+    for (var doc in roomQuery.docs) {
+      final members = doc.data()['members'] as List;
+      if (members.contains(senderId)) { roomId = doc.id; break; }
+    }
+
+    if (roomId.isEmpty) {
+      final newRoom = await FirebaseFirestore.instance.collection('rooms').add({
+        'type': 'private', 'members': [myUid, senderId],
+        'lastMessage': 'Chat pribadi dimulai', 'lastMessageTime': FieldValue.serverTimestamp(),
+      });
+      roomId = newRoom.id;
+    }
+
+    if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: senderName)));
+  }
+
+  // FITUR BARU: LIHAT SIAPA YANG MEMILIH POLLING
+  void _showPollDetails(Map<String, dynamic> votes, int optionIndex, List<String> options) {
+    final List<String> voters = [];
+    votes.forEach((uid, voteIdx) { if (voteIdx == optionIndex) voters.add(uid); });
+
+    showModalBottomSheet(context: context, builder: (context) {
+      return SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Padding(padding: const EdgeInsets.all(16), child: Text('Pemilih: ${options[optionIndex]}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+        const Divider(),
+        if (voters.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('Belum ada yang memilih opsi ini.')),
+        ...voters.map((uid) => FutureBuilder<DocumentSnapshot>(
+          future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+          builder: (context, userSnap) {
+            if (!userSnap.hasData) return const ListTile(title: Text('Memuat...'));
+            final name = userSnap.data!.data() != null ? (userSnap.data!.data() as Map)['displayName'] ?? 'Pengguna' : 'Pengguna';
+            return ListTile(leading: const Icon(Icons.person), title: Text(name));
+          },
+        )),
+      ]));
+    });
+  }
+
   Future<void> _showAttachmentMenu() async {
     if (_isBlockedByMe || _hasBlockedMe) return;
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -497,6 +541,10 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
+      // FITUR REPLY PRIVATELY DI GRUP
+      if (widget.roomId != 'global' && _roomType != 'private' && !isMe)
+        ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
+      
       ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
       ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
       if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
@@ -513,7 +561,6 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) { final emojis = ['😀', '😂', '🥰', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '❤️', '💔', '🎉', '✨', '📷', '🎵']; return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10), itemCount: emojis.length, itemBuilder: (context, index) => GestureDetector(onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); }, child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28)))))); });
   }
 
-  // FITUR BARU: SIMPAN VIEW ONCE
   void _openMediaViewer(String imageUrl, bool isViewOnce, DocumentSnapshot doc) {
     if (isViewOnce && !_antiViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); }
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
@@ -523,7 +570,6 @@ class _ChatScreenState extends State<ChatScreen> {
         foregroundColor: Colors.white, 
         title: Text(isViewOnce ? 'Sekali Lihat' : 'Foto'),
         actions: [
-          // Tombol Simpan
           IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadMedia(imageUrl)),
         ],
       ), 
@@ -619,6 +665,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: GestureDetector(
                     onLongPress: () => _showMessageOptions(doc, isMe, displayText, data),
                     onHorizontalDragEnd: (details) { if (details.primaryVelocity! > 0) { setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']}); } },
+                    onDoubleTap: () async { // FITUR DOUBLE TAP UNTUK REACTION
+                      final reactionsList = Map<String, dynamic>.from(data['reactions'] ?? {});
+                      reactionsList[myUid] = '❤️';
+                      await doc.reference.update({'reactions': reactionsList});
+                    },
                     child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                     if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
@@ -641,7 +692,21 @@ class _ChatScreenState extends State<ChatScreen> {
                     else if (type == 'audio') _AudioPlayerWidget(url: data['mediaUrl'], isMe: isMe)
                     else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                     else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
-                    else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
+                    else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), 
+                      ...List.generate(2, (i) { 
+                        final options = List<String>.from(data['options'] ?? []); 
+                        final votes = Map<String, dynamic>.from(data['votes'] ?? {}); 
+                        final voteCount = votes.values.where((v) => v == i).length; 
+                        final totalVotes = votes.length; 
+                        final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); 
+                        return GestureDetector(
+                          onTap: () => _votePoll(doc.id, i, votes), 
+                          onLongPress: () => _showPollDetails(votes, i, options), // FITUR LIHAT PEMILIH
+                          child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))
+                        ); 
+                      })
+                    ]))
                     else Text.rich(TextSpan(children: _parseLinks(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)))),
                     
                     if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),

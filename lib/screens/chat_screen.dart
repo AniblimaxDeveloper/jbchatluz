@@ -47,6 +47,10 @@ class _ChatScreenState extends State<ChatScreen> {
   String _roomType = "private";
   String? _wallpaperPath;
   
+  // State Group Announcement
+  bool _isAdmin = false;
+  bool _isAnnouncement = false;
+  
   final AudioRecorder _recorder = AudioRecorder();
   bool _isRecording = false;
   bool _isAntiDelete = false;
@@ -117,7 +121,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FUNGSI TERJEMAH YANG TADI HILANG
   Future<void> _translateMessage(String text) async {
     showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()));
     try {
@@ -143,7 +146,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void _listenToRoomData() {
     if (widget.roomId == 'global') return;
     _roomListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).snapshots().listen((snap) {
-      if (snap.exists) { final data = snap.data()!; setState(() { _pinnedMessage = data['pinnedMessage'] as Map<String, dynamic>?; }); }
+      if (snap.exists) {
+        final data = snap.data()!;
+        final admins = (data['admins'] as List?) ?? [];
+        setState(() {
+          _pinnedMessage = data['pinnedMessage'] as Map<String, dynamic>?;
+          _isAdmin = admins.contains(myUid);
+          _isAnnouncement = data['isAnnouncement'] ?? false;
+        });
+      }
     });
   }
 
@@ -268,7 +279,8 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.image, color: Colors.blue), title: const Text('Galeri / Foto'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, false); }),
       ListTile(leading: const Icon(Icons.person, color: Colors.teal), title: const Text('Bagikan Kontak'), onTap: () { Navigator.pop(context); _showContactPicker(); }),
-      ListTile(leading: const Icon(Icons.videocam, color: Colors.purple), title: const Text('Video Pendek'), onTap: () { Navigator.pop(context); _pickVideo(); }),
+      ListTile(leading: const Icon(Icons.videocam, color: Colors.purple), title: const Text('Rekam Video Langsung'), onTap: () { Navigator.pop(context); _pickVideo(ImageSource.camera); }),
+      ListTile(leading: const Icon(Icons.video_library, color: Colors.deepPurple), title: const Text('Video dari Galeri'), onTap: () { Navigator.pop(context); _pickVideo(ImageSource.gallery); }),
       ListTile(leading: const Icon(Icons.insert_drive_file, color: Colors.orange), title: const Text('Dokumen'), onTap: () { Navigator.pop(context); _pickDocument(); }),
       ListTile(leading: const Icon(Icons.location_on, color: Colors.red), title: const Text('Lokasi'), onTap: () { Navigator.pop(context); _shareLocation(); }),
       ListTile(leading: const Icon(Icons.bar_chart, color: Colors.purple), title: const Text('Polling (Voting)'), onTap: () { Navigator.pop(context); _createPoll(); }),
@@ -327,9 +339,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.roomId != 'global') { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': '👤 Kontak', 'lastMessageTime': FieldValue.serverTimestamp()}); }
   }
 
-  Future<void> _pickVideo() async {
+  Future<void> _pickVideo(ImageSource source) async {
     final picker = ImagePicker();
-    final XFile? video = await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 1));
+    final XFile? video = await picker.pickVideo(source: source, maxDuration: const Duration(minutes: 1));
     if (video == null) return;
     setState(() => _isUploading = true);
     try {
@@ -385,25 +397,12 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim lokasi: $e'))); } finally { setState(() => _isUploading = false); }
   }
 
-  // MEDIA PREVIEW & CAPTION
   Future<void> _pickImage(ImageSource source, bool isViewOnce) async {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
     if (media == null) return;
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MediaPreviewScreen(
-          file: media,
-          isViewOnce: isViewOnce,
-          onSend: (caption) {
-            Navigator.pop(context);
-            _uploadImage(File(media.path), caption, isViewOnce);
-          },
-        ),
-      ),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => MediaPreviewScreen(file: media, isViewOnce: isViewOnce, onSend: (caption) { Navigator.pop(context); _uploadImage(File(media.path), caption, isViewOnce); })));
   }
 
   Future<void> _uploadImage(File file, String caption, bool isViewOnce) async {
@@ -416,11 +415,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final jsonData = jsonDecode(await response.stream.bytesToString());
       if (jsonData['success'] == true) {
         Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-          'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': caption,
-          'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo, 'viewOnce': isViewOnce
-        });
+        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': caption, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo, 'viewOnce': isViewOnce});
         setState(() => _replyTo = null);
       }
     } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal upload foto: $e'))); } finally { setState(() => _isUploading = false); }
@@ -590,29 +585,18 @@ class _ChatScreenState extends State<ChatScreen> {
                     else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
                     else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
                     
-                    // KARTU KONTAK
                     else if (type == 'contact') 
                       Container(
                         width: 220, padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Row(children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null,
-                              child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null,
-                            ),
+                            CircleAvatar(radius: 20, backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null, child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null),
                             const SizedBox(width: 12),
-                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                              Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                            ])),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12))])),
                           ]),
                           const Divider(),
-                          GestureDetector(
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))),
-                            child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
-                          ),
+                          GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))), child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13))),
                         ]),
                       )
 
@@ -634,8 +618,11 @@ class _ChatScreenState extends State<ChatScreen> {
               });
             })),
             
-            if (_isBlockedByMe || _hasBlockedMe)
+            // GROUP ANNOUNCEMENT LOGIC
+            if ((_isBlockedByMe || _hasBlockedMe))
               Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: Text(_isBlockedByMe ? 'Anda telah memblokir kontak ini. Buka blokir di Info Kontak.' : 'Anda tidak dapat mengirim pesan ke kontak ini.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)))
+            else if (_isAnnouncement && !_isAdmin)
+              Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: const Text('Hanya admin yang dapat mengirim pesan di grup ini.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
             else ...[
               if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [

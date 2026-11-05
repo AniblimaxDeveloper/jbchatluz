@@ -22,6 +22,7 @@ import 'call_screen.dart';
 import 'contact_info_screen.dart';
 import 'group_info_screen.dart';
 import 'forward_screen.dart';
+import 'media_preview_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -68,7 +69,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showScrollToBottom = false;
   bool _isBlockedByMe = false;
   bool _hasBlockedMe = false;
-
   bool _isSearching = false;
   String _searchQuery = "";
 
@@ -253,11 +253,64 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isBlockedByMe || _hasBlockedMe) return;
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(leading: const Icon(Icons.image, color: Colors.blue), title: const Text('Galeri / Foto'), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery, false); }),
+      ListTile(leading: const Icon(Icons.person, color: Colors.teal), title: const Text('Bagikan Kontak'), onTap: () { Navigator.pop(context); _showContactPicker(); }),
       ListTile(leading: const Icon(Icons.videocam, color: Colors.purple), title: const Text('Video Pendek'), onTap: () { Navigator.pop(context); _pickVideo(); }),
       ListTile(leading: const Icon(Icons.insert_drive_file, color: Colors.orange), title: const Text('Dokumen'), onTap: () { Navigator.pop(context); _pickDocument(); }),
       ListTile(leading: const Icon(Icons.location_on, color: Colors.red), title: const Text('Lokasi'), onTap: () { Navigator.pop(context); _shareLocation(); }),
       ListTile(leading: const Icon(Icons.bar_chart, color: Colors.purple), title: const Text('Polling (Voting)'), onTap: () { Navigator.pop(context); _createPoll(); }),
     ])));
+  }
+
+  void _showContactPicker() {
+    showModalBottomSheet(context: context, builder: (context) {
+      return StatefulBuilder(builder: (context, setModalState) {
+        return FutureBuilder<DocumentSnapshot>(
+          future: FirebaseFirestore.instance.collection('users').doc(myUid).get(),
+          builder: (context, mySnap) {
+            if (!mySnap.hasData) return const Center(child: CircularProgressIndicator());
+            final List<String> contactUids = List<String>.from((mySnap.data!.data() as Map)['contacts'] ?? []);
+            if (contactUids.isEmpty) return const Center(child: Text('Belum ada kontak.'));
+
+            return ListView.builder(
+              itemCount: contactUids.length,
+              itemBuilder: (context, index) {
+                final uid = contactUids[index];
+                return FutureBuilder<DocumentSnapshot>(
+                  future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+                  builder: (context, userSnap) {
+                    if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
+                    final uData = userSnap.data!.data() as Map<String, dynamic>;
+                    final name = uData['displayName'] ?? 'Pengguna';
+                    final jbId = uData['jbId'] ?? '';
+                    final photo = uData['photoBase64'] ?? '';
+
+                    return ListTile(
+                      leading: CircleAvatar(backgroundImage: photo.isNotEmpty ? MemoryImage(base64Decode(photo)) : null, child: photo.isEmpty ? const Icon(Icons.person) : null),
+                      title: Text(name),
+                      subtitle: Text(jbId),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _sendContact(uid, name, jbId, photo);
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      });
+    });
+  }
+
+  Future<void> _sendContact(String uid, String name, String jbId, String photoBase64) async {
+    Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+      'type': 'contact', 'contactUid': uid, 'contactName': name, 'contactJbId': jbId, 'contactPhoto': photoBase64,
+      'text': '👤 Kontak', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+      'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt
+    });
+    if (widget.roomId != 'global') { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': '👤 Kontak', 'lastMessageTime': FieldValue.serverTimestamp()}); }
   }
 
   Future<void> _pickVideo() async {
@@ -269,16 +322,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final ref = FirebaseStorage.instance.ref().child('chat_videos/${DateTime.now().millisecondsSinceEpoch}.mp4');
       await ref.putFile(File(video.path));
       final downloadUrl = await ref.getDownloadURL();
-      
       Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-      
-      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-        'type': 'video', 'mediaUrl': downloadUrl, 'text': '',
-        'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-        'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo
-      });
+      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'video', 'mediaUrl': downloadUrl, 'text': '', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo});
       setState(() => _replyTo = null);
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload video. Pastikan Firebase Storage (Blaze) aktif.'))); } finally { setState(() => _isUploading = false); }
+    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal upload video. Pastikan Storage Blaze aktif.'))); } finally { setState(() => _isUploading = false); }
   }
 
   void _sendSticker(String stickerUrl) async {
@@ -324,20 +371,42 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim lokasi: $e'))); } finally { setState(() => _isUploading = false); }
   }
 
+  // FITUR BARU: MEDIA PREVIEW & CAPTION
   Future<void> _pickImage(ImageSource source, bool isViewOnce) async {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
     if (media == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MediaPreviewScreen(
+          file: media,
+          isViewOnce: isViewOnce,
+          onSend: (caption) {
+            Navigator.pop(context);
+            _uploadImage(File(media.path), caption, isViewOnce);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _uploadImage(File file, String caption, bool isViewOnce) async {
     setState(() => _isUploading = true);
     try {
       const String imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
       final request = http.MultipartRequest('POST', Uri.parse('https://api.imgbb.com/1/upload?key=$imgbbApiKey'));
-      request.files.add(await http.MultipartFile.fromPath('image', media.path));
+      request.files.add(await http.MultipartFile.fromPath('image', file.path));
       final response = await request.send();
       final jsonData = jsonDecode(await response.stream.bytesToString());
       if (jsonData['success'] == true) {
         Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': '', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo, 'viewOnce': isViewOnce});
+        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+          'type': 'image', 'mediaUrl': jsonData['data']['url'], 'text': caption,
+          'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+          'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo, 'viewOnce': isViewOnce
+        });
         setState(() => _replyTo = null);
       }
     } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal upload foto: $e'))); } finally { setState(() => _isUploading = false); }
@@ -377,14 +446,26 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _votePoll(String docId, int optionIndex, Map<String, dynamic> votes) async { votes[myUid] = optionIndex; await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').doc(docId).update({'votes': votes}); }
 
+  void _editMessage(DocumentSnapshot doc, String currentText) {
+    final controller = TextEditingController(text: currentText);
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Edit Pesan'), content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () async { if (controller.text.trim().isNotEmpty) { await doc.reference.update({'text': controller.text.trim(), 'isEdited': true}); if (context.mounted) Navigator.pop(context); } }, child: const Text('Simpan'))]));
+  }
+
+  void _showMessageInfo(DocumentSnapshot doc, Map<String, dynamic> data) {
+    final time = data['timestamp'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['timestamp'] as Timestamp).toDate()) : 'Tidak diketahui';
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Info Pesan'), content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dikirim'), subtitle: Text(time)), if (data['status'] == 'read') ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Dibaca'), subtitle: const Text('Baru saja'))]), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]));
+  }
+
   void _showMessageOptions(DocumentSnapshot doc, bool isMe, String text, Map<String, dynamic> data) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
-      if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); /* Edit Logic */ }),
+      ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
+      ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
+      if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
+      if (data['type'] != 'text' && data['type'] != 'poll' && data['type'] != 'contact') ListTile(leading: const Icon(Icons.share, color: Colors.green), title: const Text('Bagikan ke...', style: TextStyle(color: Colors.green)), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
-      ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
       if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
@@ -489,12 +570,38 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                     if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
                     
-                    // RENDER VIDEO
                     if (type == 'video') _VideoPlayerWidget(url: data['mediaUrl'])
                     else if (type == 'image' && !_autoDownloadImage && !isMe)
                       GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Foto', style: TextStyle(color: Colors.blue))])))
                     else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
-                    else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
+                    else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
+                    
+                    // RENDER KARTU KONTAK (FITUR BARU)
+                    else if (type == 'contact') 
+                      Container(
+                        width: 220, padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null,
+                              child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                              Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            ])),
+                          ]),
+                          const Divider(),
+                          GestureDetector(
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))),
+                            child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                        ]),
+                      )
+
                     else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
                     else if (type == 'audio' && !_autoDownloadAudio && !isMe)
                        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))

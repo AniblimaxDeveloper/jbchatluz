@@ -117,6 +117,20 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  // FUNGSI TERJEMAH YANG TADI HILANG
+  Future<void> _translateMessage(String text) async {
+    showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()));
+    try {
+      final url = Uri.parse('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=id&dt=t&q=${Uri.encodeComponent(text)}');
+      final res = await http.get(url);
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final translated = data[0][0][0];
+        if (mounted) { Navigator.pop(context); showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Terjemahan (ID)'), content: Text(translated), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
+      } else { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menerjemahkan'))); } }
+    } catch (e) { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'))); } }
+  }
+
   Future<void> _checkBlockStatus() async {
     if (_otherUid.isEmpty) return;
     final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
@@ -371,7 +385,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim lokasi: $e'))); } finally { setState(() => _isUploading = false); }
   }
 
-  // FITUR BARU: MEDIA PREVIEW & CAPTION
+  // MEDIA PREVIEW & CAPTION
   Future<void> _pickImage(ImageSource source, bool isViewOnce) async {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
@@ -576,7 +590,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
                     else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
                     
-                    // RENDER KARTU KONTAK (FITUR BARU)
+                    // KARTU KONTAK
                     else if (type == 'contact') 
                       Container(
                         width: 220, padding: const EdgeInsets.all(8),

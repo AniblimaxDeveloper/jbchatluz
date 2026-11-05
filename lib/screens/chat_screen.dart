@@ -18,6 +18,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:gal/gal.dart'; // Library Simpan Galeri
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
@@ -121,6 +122,22 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  // FITUR BARU: SIMPAN FOTO KE GALERI
+  Future<void> _downloadMedia(String url) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mengunduh media...')));
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        await Gal.putImageBytes(response.bodyBytes, name: 'jbchatluz_${DateTime.now().millisecondsSinceEpoch}');
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Media berhasil disimpan ke Galeri!')));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal mengunduh media.')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   void _openProfilePicture(String photoData) {
     if (photoData.isEmpty) return;
     ImageProvider imageProvider;
@@ -128,7 +145,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(_otherName)),
+      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(_otherName), actions: [
+        IconButton(icon: const Icon(Icons.download), onPressed: () {
+          if (photoData.startsWith('http')) _downloadMedia(photoData);
+          else {
+            Gal.putImageBytes(base64Decode(photoData), name: 'profile_${_otherUid}');
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto profil disimpan!')));
+          }
+        })
+      ]),
       body: Center(child: InteractiveViewer(panEnabled: true, minScale: 0.5, maxScale: 4.0, child: Image(image: imageProvider))),
     )));
   }
@@ -286,67 +311,18 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
-  // FITUR BARU: JADWALKAN PESAN
   void _scheduleMessage() {
     final text = _msgController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ketik pesan terlebih dahulu sebelum menjadwalkan.')));
       return;
     }
-
     DateTime selectedDate = DateTime.now().add(const Duration(minutes: 5));
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Jadwalkan Pesan'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Pilih waktu pengiriman pesan:'),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.calendar_today),
-              title: Text(DateFormat('dd MMM yyyy').format(selectedDate)),
-              onTap: () async {
-                final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365)));
-                if (picked != null) selectedDate = DateTime(picked.year, picked.month, picked.day, selectedDate.hour, selectedDate.minute);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.access_time),
-              title: Text(DateFormat('HH:mm').format(selectedDate)),
-              onTap: () async {
-                final picked = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(selectedDate));
-                if (picked != null) selectedDate = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              _msgController.clear();
-              
-              // Simpan ke Firestore (Koleksi antrean)
-              await FirebaseFirestore.instance.collection('scheduled_messages').add({
-                'roomId': widget.roomId,
-                'text': text,
-                'senderId': myUid,
-                'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-                'scheduledTime': Timestamp.fromDate(selectedDate),
-                'status': 'pending',
-              });
-
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pesan dijadwalkan pada ${DateFormat('dd/MM HH:mm').format(selectedDate)}')));
-            },
-            child: const Text('Jadwalkan'),
-          ),
-        ],
-      ),
-    );
+    showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Jadwalkan Pesan'), content: Column(mainAxisSize: MainAxisSize.min, children: [
+      const Text('Pilih waktu pengiriman pesan:'), const SizedBox(height: 16),
+      ListTile(leading: const Icon(Icons.calendar_today), title: Text(DateFormat('dd MMM yyyy').format(selectedDate)), onTap: () async { final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365))); if (picked != null) selectedDate = DateTime(picked.year, picked.month, picked.day, selectedDate.hour, selectedDate.minute); }),
+      ListTile(leading: const Icon(Icons.access_time), title: Text(DateFormat('HH:mm').format(selectedDate)), onTap: () async { final picked = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(selectedDate)); if (picked != null) selectedDate = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute); }),
+    ]), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () async { Navigator.pop(context); _msgController.clear(); await FirebaseFirestore.instance.collection('scheduled_messages').add({'roomId': widget.roomId, 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'scheduledTime': Timestamp.fromDate(selectedDate), 'status': 'pending'}); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pesan dijadwalkan pada ${DateFormat('dd/MM HH:mm').format(selectedDate)}'))); }, child: const Text('Jadwalkan'))]));
   }
 
   Future<void> _showAttachmentMenu() async {
@@ -373,32 +349,15 @@ class _ChatScreenState extends State<ChatScreen> {
             final List<String> contactUids = List<String>.from((mySnap.data!.data() as Map)['contacts'] ?? []);
             if (contactUids.isEmpty) return const Center(child: Text('Belum ada kontak.'));
 
-            return ListView.builder(
-              itemCount: contactUids.length,
-              itemBuilder: (context, index) {
-                final uid = contactUids[index];
-                return FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
-                  builder: (context, userSnap) {
-                    if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
-                    final uData = userSnap.data!.data() as Map<String, dynamic>;
-                    final name = uData['displayName'] ?? 'Pengguna';
-                    final jbId = uData['jbId'] ?? '';
-                    final photo = uData['photoBase64'] ?? '';
-
-                    return ListTile(
-                      leading: CircleAvatar(backgroundImage: photo.isNotEmpty ? MemoryImage(base64Decode(photo)) : null, child: photo.isEmpty ? const Icon(Icons.person) : null),
-                      title: Text(name),
-                      subtitle: Text(jbId),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _sendContact(uid, name, jbId, photo);
-                      },
-                    );
-                  },
-                );
-              },
-            );
+            return ListView.builder(itemCount: contactUids.length, itemBuilder: (context, index) {
+              final uid = contactUids[index];
+              return FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnap) {
+                if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
+                final uData = userSnap.data!.data() as Map<String, dynamic>;
+                final name = uData['displayName'] ?? 'Pengguna'; final jbId = uData['jbId'] ?? ''; final photo = uData['photoBase64'] ?? '';
+                return ListTile(leading: CircleAvatar(backgroundImage: photo.isNotEmpty ? MemoryImage(base64Decode(photo)) : null, child: photo.isEmpty ? const Icon(Icons.person) : null), title: Text(name), subtitle: Text(jbId), onTap: () { Navigator.pop(context); _sendContact(uid, name, jbId, photo); });
+              });
+            });
           },
         );
       });
@@ -407,11 +366,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendContact(String uid, String name, String jbId, String photoBase64) async {
     Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
-    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-      'type': 'contact', 'contactUid': uid, 'contactName': name, 'contactJbId': jbId, 'contactPhoto': photoBase64,
-      'text': '👤 Kontak', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-      'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt
-    });
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'contact', 'contactUid': uid, 'contactName': name, 'contactJbId': jbId, 'contactPhoto': photoBase64, 'text': '👤 Kontak', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt});
     if (widget.roomId != 'global') { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': '👤 Kontak', 'lastMessageTime': FieldValue.serverTimestamp()}); }
   }
 
@@ -439,9 +394,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showStickerPicker() {
     final stickers = ['https://i.imgur.com/3h4k5qP.png', 'https://i.imgur.com/8QO2v9w.png', 'https://i.imgur.com/9Xz7l2b.png', 'https://i.imgur.com/K5zP4qJ.png'];
-    showModalBottomSheet(context: context, builder: (context) {
-      return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8), itemCount: stickers.length, itemBuilder: (context, index) => GestureDetector(onTap: () => _sendSticker(stickers[index]), child: Image.network(stickers[index], fit: BoxFit.contain))));
-    });
+    showModalBottomSheet(context: context, builder: (context) { return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8), itemCount: stickers.length, itemBuilder: (context, index) => GestureDetector(onTap: () => _sendSticker(stickers[index]), child: Image.network(stickers[index], fit: BoxFit.contain)))); });
   }
 
   Future<void> _pickDocument() async {
@@ -477,7 +430,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final picker = ImagePicker();
     final XFile? media = await picker.pickImage(source: source, imageQuality: 70);
     if (media == null) return;
-
     Navigator.push(context, MaterialPageRoute(builder: (_) => MediaPreviewScreen(file: media, isViewOnce: isViewOnce, onSend: (caption) { Navigator.pop(context); _uploadImage(File(media.path), caption, isViewOnce); })));
   }
 
@@ -561,9 +513,22 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) { final emojis = ['😀', '😂', '🥰', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '❤️', '💔', '🎉', '✨', '📷', '🎵']; return Container(height: 250, padding: const EdgeInsets.all(8), child: GridView.builder(gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 8, mainAxisSpacing: 10, crossAxisSpacing: 10), itemCount: emojis.length, itemBuilder: (context, index) => GestureDetector(onTap: () { _msgController.text += emojis[index]; Navigator.pop(context); }, child: Center(child: Text(emojis[index], style: const TextStyle(fontSize: 28)))))); });
   }
 
+  // FITUR BARU: SIMPAN VIEW ONCE
   void _openMediaViewer(String imageUrl, bool isViewOnce, DocumentSnapshot doc) {
     if (isViewOnce && !_antiViewOnce) { doc.reference.update({'mediaUrl': 'deleted', 'text': '📷 Foto sekali lihat telah dibuka'}); }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(backgroundColor: Colors.black, appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(isViewOnce ? 'Sekali Lihat' : 'Foto')), body: Center(child: InteractiveViewer(panEnabled: true, child: Image.network(imageUrl))))));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+      backgroundColor: Colors.black, 
+      appBar: AppBar(
+        backgroundColor: Colors.black, 
+        foregroundColor: Colors.white, 
+        title: Text(isViewOnce ? 'Sekali Lihat' : 'Foto'),
+        actions: [
+          // Tombol Simpan
+          IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadMedia(imageUrl)),
+        ],
+      ), 
+      body: Center(child: InteractiveViewer(panEnabled: true, child: Image.network(imageUrl)))
+    )));
   }
 
   void _openDocument(String url) async { final file = await http.get(Uri.parse(url)); final dir = await getTemporaryDirectory(); final path = '${dir.path}/doc_${DateTime.now().millisecondsSinceEpoch}'; final f = File(path); await f.writeAsBytes(file.bodyBytes); await OpenFilex.open(path); }
@@ -665,23 +630,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
                     
                     else if (type == 'contact') 
-                      Container(
-                        width: 220, padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Row(children: [
-                            CircleAvatar(radius: 20, backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null, child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null),
-                            const SizedBox(width: 12),
-                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12))])),
-                          ]),
-                          const Divider(),
-                          GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))), child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13))),
-                        ]),
-                      )
+                      Container(width: 220, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [CircleAvatar(radius: 20, backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null, child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12))]))]),
+                        const Divider(),
+                        GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))), child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13))),
+                      ]))
 
                     else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
-                    else if (type == 'audio' && !_autoDownloadAudio && !isMe)
-                       Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
+                    else if (type == 'audio' && !_autoDownloadAudio && !isMe) Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
                     else if (type == 'audio') _AudioPlayerWidget(url: data['mediaUrl'], isMe: isMe)
                     else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                     else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))

@@ -1,30 +1,40 @@
 name: Build APK
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21' 
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.1'
           channel: 'stable'
+
       - run: flutter create . --platforms=android --org com.jbchatluz --project-name jbchatluz
-      - name: Align Config
+
+      - name: Align Kotlin, Gradle, NDK, and Permissions
         run: |
           echo "android.useAndroidX=true" >> android/gradle.properties
           echo "android.enableJetifier=true" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
+          echo "org.gradle.vfs.watch=false" >> android/gradle.properties
           
-          sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
+          if [ -f android/build.gradle ]; then
+            sed -i "s/ext.kotlin_version = '.*'/ext.kotlin_version = '2.2.21'/" android/build.gradle
+          fi
           sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "2.2.21"/' android/settings.gradle
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.12.1"/' android/settings.gradle
           sed -i 's|distributionUrl=https\\://services.gradle.org/distributions/gradle-.*-all.zip|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
@@ -32,9 +42,11 @@ jobs:
           sed -i '/minSdkVersion/d' android/app/build.gradle
           sed -i '/minSdk /d' android/app/build.gradle
           sed -i '/ndkVersion/d' android/app/build.gradle
+          
           sed -i '/defaultConfig {/a \        minSdkVersion 23\n        targetSdkVersion 36' android/app/build.gradle
           sed -i '/android {/a \    ndkVersion "27.0.12077973"\n    compileSdk 36' android/app/build.gradle
           
+          # PERBAIKAN DESUGARING
           sed -i '/android {/a \    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }' android/app/build.gradle
           echo "" >> android/app/build.gradle
           echo "dependencies {" >> android/app/build.gradle
@@ -44,6 +56,7 @@ jobs:
           sed -i '/id "org.jetbrains.kotlin.android"/a \    id "com.google.gms.google-services" version "4.4.2" apply false' android/settings.gradle
           sed -i '/id "dev.flutter.flutter-gradle-plugin"/a \    id "com.google.gms.google-services"' android/app/build.gradle
           
+          # IZIN LENGKAP
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.CAMERA"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' android/app/src/main/AndroidManifest.xml
@@ -53,15 +66,24 @@ jobs:
           sed -i '/<application/i \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>' android/app/src/main/AndroidManifest.xml
+          # IZIN GALERI UNTUK SIMPAN MEDIA
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Copy Google Services File
         run: cp google-services.json android/app/google-services.json
+
       - name: Clean and Build
         run: |
           flutter clean
           flutter pub get
-          if [ -f assets/icon.png ]; then dart run flutter_launcher_icons; fi
+          if [ -f assets/icon.png ]; then
+            dart run flutter_launcher_icons
+          fi
           flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=IMGBB_API_KEY=${{ secrets.IMGBB_API_KEY }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: jbchatluz-apk

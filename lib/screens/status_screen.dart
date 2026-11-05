@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gal/gal.dart';
 
 class StatusScreen extends StatefulWidget {
   const StatusScreen({super.key});
@@ -100,13 +101,49 @@ class _StatusScreenState extends State<StatusScreen> {
     );
   }
 
+  // FUNGSI SIMPAN STATUS
+  Future<void> _downloadStatus(String base64String) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Menyimpan status...')));
+      await Gal.putImageBytes(base64Decode(base64String), name: 'status_${DateTime.now().millisecondsSinceEpoch}');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status berhasil disimpan ke Galeri!')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
+    }
+  }
+
   void _viewStatus(DocumentSnapshot doc, Map<String, dynamic> data) async {
     final views = (data['views'] as List?) ?? [];
     if (!views.contains(myUid)) { await doc.reference.update({'views': FieldValue.arrayUnion([myUid])}); }
     if (!mounted) return;
+    
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(data['userName'] ?? 'Status'), actions: [if (data['uid'] == myUid) IconButton(icon: const Icon(Icons.remove_red_eye), onPressed: () { showDialog(context: context, builder: (_) => AlertDialog(title: const Text('Dilihat oleh'), content: Text('${views.length} orang telah melihat status ini.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); })]),
+      appBar: AppBar(
+        backgroundColor: Colors.black, 
+        foregroundColor: Colors.white, 
+        title: Text(data['userName'] ?? 'Status'), 
+        actions: [
+          // Tombol Download Status
+          if (data['type'] != 'text') 
+            IconButton(
+              icon: const Icon(Icons.download), 
+              onPressed: () => _downloadStatus(data['photoBase64'])
+            ),
+          // Tombol Lihat Viewers (Jika status sendiri)
+          if (data['uid'] == myUid) 
+            IconButton(
+              icon: const Icon(Icons.remove_red_eye), 
+              onPressed: () { 
+                showDialog(context: context, builder: (_) => AlertDialog(
+                  title: const Text('Dilihat oleh'), 
+                  content: Text('${views.length} orang telah melihat status ini.'), 
+                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
+                )); 
+              }
+            )
+        ]
+      ),
       body: Center(
         child: data['type'] == 'text'
             ? Container(

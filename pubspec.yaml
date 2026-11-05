@@ -33,6 +33,7 @@ dependencies:
   open_filex: ^4.5.0
   local_auth: ^2.3.0
   qr_flutter: ^4.1.0
+  gal: ^2.3.0
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

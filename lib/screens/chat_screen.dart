@@ -76,6 +76,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _hasBlockedMe = false;
   bool _isSearching = false;
   String _searchQuery = "";
+  bool _showQuickReplies = false;
 
   @override
   void initState() {
@@ -88,6 +89,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _listenToRoomData();
     _checkBlockStatus();
     
+    _msgController.addListener(() {
+      if (_msgController.text.startsWith('/') && !_showQuickReplies) setState(() => _showQuickReplies = true);
+      else if (!_msgController.text.startsWith('/') && _showQuickReplies) setState(() => _showQuickReplies = false);
+    });
+
     _scrollController.addListener(() {
       if (_scrollController.hasClients) { setState(() { _showScrollToBottom = _scrollController.offset > 500; }); }
     });
@@ -324,47 +330,27 @@ class _ChatScreenState extends State<ChatScreen> {
     ]), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () async { Navigator.pop(context); _msgController.clear(); await FirebaseFirestore.instance.collection('scheduled_messages').add({'roomId': widget.roomId, 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'scheduledTime': Timestamp.fromDate(selectedDate), 'status': 'pending'}); if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Pesan dijadwalkan pada ${DateFormat('dd/MM HH:mm').format(selectedDate)}'))); }, child: const Text('Jadwalkan'))]));
   }
 
-  // FITUR BARU: BALAS PRIBADI (REPLY PRIVATELY)
   Future<void> _replyPrivately(String senderId, String senderName) async {
-    final roomQuery = await FirebaseFirestore.instance.collection('rooms')
-        .where('type', isEqualTo: 'private')
-        .where('members', arrayContains: myUid).get();
-
+    final roomQuery = await FirebaseFirestore.instance.collection('rooms').where('type', isEqualTo: 'private').where('members', arrayContains: myUid).get();
     String roomId = '';
-    for (var doc in roomQuery.docs) {
-      final members = doc.data()['members'] as List;
-      if (members.contains(senderId)) { roomId = doc.id; break; }
-    }
-
-    if (roomId.isEmpty) {
-      final newRoom = await FirebaseFirestore.instance.collection('rooms').add({
-        'type': 'private', 'members': [myUid, senderId],
-        'lastMessage': 'Chat pribadi dimulai', 'lastMessageTime': FieldValue.serverTimestamp(),
-      });
-      roomId = newRoom.id;
-    }
-
+    for (var doc in roomQuery.docs) { final members = doc.data()['members'] as List; if (members.contains(senderId)) { roomId = doc.id; break; } }
+    if (roomId.isEmpty) { final newRoom = await FirebaseFirestore.instance.collection('rooms').add({'type': 'private', 'members': [myUid, senderId], 'lastMessage': 'Chat pribadi dimulai', 'lastMessageTime': FieldValue.serverTimestamp()}); roomId = newRoom.id; }
     if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: roomId, roomName: senderName)));
   }
 
-  // FITUR BARU: LIHAT SIAPA YANG MEMILIH POLLING
   void _showPollDetails(Map<String, dynamic> votes, int optionIndex, List<String> options) {
     final List<String> voters = [];
     votes.forEach((uid, voteIdx) { if (voteIdx == optionIndex) voters.add(uid); });
-
     showModalBottomSheet(context: context, builder: (context) {
       return SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         Padding(padding: const EdgeInsets.all(16), child: Text('Pemilih: ${options[optionIndex]}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
         const Divider(),
         if (voters.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('Belum ada yang memilih opsi ini.')),
-        ...voters.map((uid) => FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
-          builder: (context, userSnap) {
-            if (!userSnap.hasData) return const ListTile(title: Text('Memuat...'));
-            final name = userSnap.data!.data() != null ? (userSnap.data!.data() as Map)['displayName'] ?? 'Pengguna' : 'Pengguna';
-            return ListTile(leading: const Icon(Icons.person), title: Text(name));
-          },
-        )),
+        ...voters.map((uid) => FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnap) {
+          if (!userSnap.hasData) return const ListTile(title: Text('Memuat...'));
+          final name = userSnap.data!.data() != null ? (userSnap.data!.data() as Map)['displayName'] ?? 'Pengguna' : 'Pengguna';
+          return ListTile(leading: const Icon(Icons.person), title: Text(name));
+        })),
       ]));
     });
   }
@@ -512,7 +498,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _sendMessage() async {
     if (_isBlockedByMe || _hasBlockedMe) return;
-    final text = _msgController.text.trim(); if (text.isEmpty) return; _msgController.clear();
+    final text = _msgController.text.trim(); if (text.isEmpty) return; _msgController.clear(); setState(() => _showQuickReplies = false);
     Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
     await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'text', 'text': text, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt, 'replyTo': _replyTo});
     if (widget.roomId != 'global') { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp()}); }
@@ -541,7 +527,6 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
-      // FITUR REPLY PRIVATELY DI GRUP
       if (widget.roomId != 'global' && _roomType != 'private' && !isMe)
         ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
       
@@ -665,7 +650,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: GestureDetector(
                     onLongPress: () => _showMessageOptions(doc, isMe, displayText, data),
                     onHorizontalDragEnd: (details) { if (details.primaryVelocity! > 0) { setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']}); } },
-                    onDoubleTap: () async { // FITUR DOUBLE TAP UNTUK REACTION
+                    onDoubleTap: () async {
                       final reactionsList = Map<String, dynamic>.from(data['reactions'] ?? {});
                       reactionsList[myUid] = '❤️';
                       await doc.reference.update({'reactions': reactionsList});
@@ -702,7 +687,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); 
                         return GestureDetector(
                           onTap: () => _votePoll(doc.id, i, votes), 
-                          onLongPress: () => _showPollDetails(votes, i, options), // FITUR LIHAT PEMILIH
+                          onLongPress: () => _showPollDetails(votes, i, options),
                           child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))
                         ); 
                       })
@@ -722,6 +707,30 @@ class _ChatScreenState extends State<ChatScreen> {
               Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: const Text('Hanya admin yang dapat mengirim pesan di grup ini.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
             else ...[
               if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
+              
+              // UI BALASAN CEPAT
+              if (_showQuickReplies)
+                Container(
+                  height: 50, color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('users').doc(myUid).collection('quick_replies').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
+                      return ListView.builder(
+                        scrollDirection: Axis.horizontal, itemCount: snapshot.data!.docs.length,
+                        itemBuilder: (context, index) {
+                          final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                          return Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8), child: ActionChip(
+                            label: Text(data['shortcut'] ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                            backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white,
+                            onPressed: () { setState(() { _msgController.text = data['message'] ?? ''; _showQuickReplies = false; }); },
+                          ));
+                        },
+                      );
+                    },
+                  ),
+                ),
+
               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
                   IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),

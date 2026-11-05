@@ -5,7 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'catalog_screen.dart';
+import 'quick_reply_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -77,12 +78,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-
       final bytes = await File(image.path).readAsBytes();
       final base64String = base64Encode(bytes);
-
       await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'photoBase64': base64String});
-      
       if (mounted) {
         setState(() => _photoBase64 = base64String);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto profil diubah!')));
@@ -99,12 +97,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'displayName': _nameController.text.trim(),
-      });
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'displayName': _nameController.text.trim()});
       await user.updateDisplayName(_nameController.text.trim());
-      
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama diperbarui!')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -116,9 +110,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _updateAbout() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-      'about': _aboutController.text.trim(),
-    });
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'about': _aboutController.text.trim()});
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status Tentang diperbarui')));
   }
 
@@ -128,23 +120,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final bgColor = isDark ? const Color(0xFF0B141A) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black;
     final appBarColor = isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54);
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
 
     ImageProvider? profileImage;
-    if (_photoBase64 != null && _photoBase64!.isNotEmpty) {
-      profileImage = MemoryImage(base64Decode(_photoBase64!));
-    }
+    if (_photoBase64 != null && _photoBase64!.isNotEmpty) { profileImage = MemoryImage(base64Decode(_photoBase64!)); }
 
     return Scaffold(
       backgroundColor: bgColor,
-      appBar: AppBar(
-        title: const Text('Profil'),
-        backgroundColor: appBarColor,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(icon: const Icon(Icons.qr_code), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.edit), onPressed: () {}),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Profil'), backgroundColor: appBarColor, foregroundColor: Colors.white, actions: [IconButton(icon: const Icon(Icons.qr_code), onPressed: () {}), IconButton(icon: const Icon(Icons.edit), onPressed: () {})]),
       body: ListView(
         children: [
           const SizedBox(height: 24),
@@ -153,97 +136,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: _isUploading ? null : _pickAndUploadPhoto,
               child: Stack(
                 children: [
-                  CircleAvatar(
-                    radius: 70,
-                    backgroundColor: Colors.grey[300],
-                    backgroundImage: profileImage,
-                    child: profileImage == null ? const Icon(Icons.person, size: 70) : null,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 4,
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: const BoxDecoration(color: Color(0xFF25D366), shape: BoxShape.circle),
-                      child: _isUploading 
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Icon(Icons.camera_alt, color: Colors.white, size: 22),
-                    ),
-                  ),
+                  CircleAvatar(radius: 70, backgroundColor: Colors.grey[300], backgroundImage: profileImage, child: profileImage == null ? const Icon(Icons.person, size: 70) : null),
+                  Positioned(bottom: 0, right: 4, child: Container(padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Color(0xFF25D366), shape: BoxShape.circle), child: _isUploading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.camera_alt, color: Colors.white, size: 22))),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 32),
-          
-          _buildProfileItem(Icons.person_outline, 'Nama', _nameController.text, textColor, () {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Ubah Nama'),
-                content: TextField(controller: _nameController, decoration: const InputDecoration(border: OutlineInputBorder())),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-                  TextButton(onPressed: () { _updateName(); Navigator.pop(context); }, child: const Text('Simpan')),
-                ],
-              ),
-            );
-          }),
-          
-          _buildProfileItem(Icons.info_outline, 'Tentang', _aboutController.text, textColor, () {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Ubah Status'),
-                content: TextField(controller: _aboutController, decoration: const InputDecoration(border: OutlineInputBorder())),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
-                  TextButton(onPressed: () { _updateAbout(); Navigator.pop(context); }, child: const Text('Simpan')),
-                ],
-              ),
-            );
-          }),
-          
+          _buildProfileItem(Icons.person_outline, 'Nama', _nameController.text, textColor, () { showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Ubah Nama'), content: TextField(controller: _nameController, decoration: const InputDecoration(border: OutlineInputBorder())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () { _updateName(); Navigator.pop(context); }, child: const Text('Simpan'))])); }),
+          _buildProfileItem(Icons.info_outline, 'Tentang', _aboutController.text, textColor, () { showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Ubah Status'), content: TextField(controller: _aboutController, decoration: const InputDecoration(border: OutlineInputBorder())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')), TextButton(onPressed: () { _updateAbout(); Navigator.pop(context); }, child: const Text('Simpan'))])); }),
           _buildProfileItem(Icons.alternate_email, 'Nama pengguna', _jbId, textColor, () {}),
           _buildProfileItem(Icons.phone_outlined, 'Email', _email, textColor, () {}),
-          _buildProfileItem(Icons.link, 'Tautan', 'Tambah tautan', textColor, () {}, isLink: true),
           
           const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('MOD Privasi (Eksklusif)', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.done_all, color: Colors.blue),
-            title: Text('Sembunyikan Centang Biru', style: TextStyle(color: textColor)),
-            value: _hideBlueTick,
-            activeColor: const Color(0xFF25D366),
-            onChanged: (val) {
-              setState(() => _hideBlueTick = val);
-              _saveModSetting('mod_hide_tick', val);
-            },
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.visibility_off, color: Colors.orange),
-            title: Text('Sembunyikan Status Online', style: TextStyle(color: textColor)),
-            value: _hideOnlineStatus,
-            activeColor: const Color(0xFF25D366),
-            onChanged: (val) {
-              setState(() => _hideOnlineStatus = val);
-              _saveModSetting('mod_hide_online', val);
-            },
-          ),
+          ListTile(leading: const Icon(Icons.storefront, color: Colors.orange), title: Text('Katalog Produk Bisnis', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), subtitle: const Text('Tampilkan barang jualan Anda'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CatalogScreen(userId: myUid, isMe: true)))),
+          ListTile(leading: const Icon(Icons.flash_on, color: Colors.blue), title: Text('Balasan Cepat (Quick Replies)', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), subtitle: const Text('Buat template pesan otomatis'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QuickReplyScreen()))),
+          
+          const Divider(),
+          Padding(padding: const EdgeInsets.all(16), child: Text('MOD Privasi', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          SwitchListTile(secondary: const Icon(Icons.done_all, color: Colors.blue), title: Text('Sembunyikan Centang Biru', style: TextStyle(color: textColor)), value: _hideBlueTick, activeColor: const Color(0xFF25D366), onChanged: (val) { setState(() => _hideBlueTick = val); _saveModSetting('mod_hide_tick', val); }),
+          SwitchListTile(secondary: const Icon(Icons.visibility_off, color: Colors.orange), title: Text('Sembunyikan Status Online', style: TextStyle(color: textColor)), value: _hideOnlineStatus, activeColor: const Color(0xFF25D366), onChanged: (val) { setState(() => _hideOnlineStatus = val); _saveModSetting('mod_hide_online', val); }),
         ],
       ),
     );
   }
 
-  Widget _buildProfileItem(IconData icon, String label, String value, Color textColor, VoidCallback onTap, {bool isLink = false}) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.grey),
-      title: Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 14)),
-      subtitle: Text(value, style: TextStyle(color: isLink ? const Color(0xFF25D366) : textColor, fontSize: 17, fontWeight: isLink ? FontWeight.normal : FontWeight.w500)),
-      onTap: onTap,
-    );
+  Widget _buildProfileItem(IconData icon, String label, String value, Color textColor, VoidCallback onTap) {
+    return ListTile(leading: Icon(icon, color: Colors.grey), title: Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 14)), subtitle: Text(value, style: TextStyle(color: textColor, fontSize: 17, fontWeight: FontWeight.w500)), onTap: onTap);
   }
 }

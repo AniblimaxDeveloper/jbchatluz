@@ -53,8 +53,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     ])));
   }
 
-  void _showChatOptions(String roomId, bool isArchived, bool isPinned, bool isLocked, bool isFavorite) {
+  void _showChatOptions(String roomId, bool isArchived, bool isPinned, bool isLocked, bool isFavorite, bool isMuted) {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(leading: Icon(isMuted ? Icons.volume_up : Icons.volume_off, color: Colors.grey), title: Text(isMuted ? 'Bunyikan Obrolan' : 'Bisukan Obrolan (Mute)'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isMuted': !isMuted}); }),
       ListTile(leading: Icon(isFavorite ? Icons.star : Icons.star_border, color: Colors.orange), title: Text(isFavorite ? 'Hapus dari Favorit' : 'Tandai Favorit'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isFavorite': !isFavorite}); }),
       ListTile(leading: Icon(isLocked ? Icons.lock_open : Icons.lock), title: Text(isLocked ? 'Buka Kunci Obrolan' : 'Kunci Obrolan'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isLocked': !isLocked}); if (!isLocked) _isLockedFolderOpen = false; }),
       ListTile(leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin), title: Text(isPinned ? 'Lepas Sematan' : 'Sematkan Chat'), onTap: () { Navigator.pop(context); FirebaseFirestore.instance.collection('rooms').doc(roomId).update({'isPinned': !isPinned}); }),
@@ -129,7 +130,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               var allRooms = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid)); }).toList();
               
-              // FILTER CHAT TERKUNCI
               final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
               final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true && (doc.data() as Map)['isLocked'] != true).toList();
               var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true && (doc.data() as Map)['isArchived'] != true).toList();
@@ -146,7 +146,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
               
               if (archivedRooms.isNotEmpty && _activeFilter == 'Semua') { tiles.add(ListTile(leading: const Icon(Icons.archive, color: Colors.grey), title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)), onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen))); if (_isArchiveFolderOpen) { for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); } } }
               
-              // TAMPILKAN FOLDER TERKUNCI
               if (lockedRooms.isNotEmpty && _activeFilter == 'Semua') { 
                 tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); 
                 if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } } 
@@ -165,7 +164,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   void _buildRoomTile(DocumentSnapshot doc, Color textColor, bool isDark, List<Widget> tiles, {required bool showArchived}) {
     final data = doc.data() as Map<String, dynamic>;
-    final isPrivate = data['type'] == 'private'; final isPinned = data['isPinned'] == true; final isLocked = data['isLocked'] == true; final isArchived = data['isArchived'] == true; final isFavorite = data['isFavorite'] == true;
+    final isPrivate = data['type'] == 'private'; final isPinned = data['isPinned'] == true; final isLocked = data['isLocked'] == true; final isArchived = data['isArchived'] == true; final isFavorite = data['isFavorite'] == true; final isMuted = data['isMuted'] == true;
     final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
     if (isArchived && !showArchived) return;
     if (isPrivate) {
@@ -176,10 +175,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
         if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
         return ListTile(
           leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')), 
-          title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (data['disappearingDuration'] != null && data['disappearingDuration'] > 0) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.timer, size: 14, color: Colors.grey))]), 
+          title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]), 
           subtitle: Row(children: [if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey), if (isPinned) const SizedBox(width: 4), Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)))]), 
           trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
-          onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite), 
+          onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted), 
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name)))
         );
       }));
@@ -187,9 +186,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final groupName = data['name'] ?? 'Grup'; if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) return;
       tiles.add(ListTile(
         leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)), 
-        title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (data['disappearingDuration'] != null && data['disappearingDuration'] > 0) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.timer, size: 14, color: Colors.grey))]), 
+        title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]), 
         trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
-        onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite), 
+        onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted), 
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName)))
       ));
     }

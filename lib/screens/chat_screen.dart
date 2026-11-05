@@ -62,7 +62,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Color _tickColor = Colors.blue;
   String _autoReplyMsg = "";
   
-  // State Bisnis
   bool _bizGreetingOn = false;
   String _bizGreetingMsg = "";
   bool _bizAwayOn = false;
@@ -248,33 +247,21 @@ class _ChatScreenState extends State<ChatScreen> {
     _setupAutoReplies();
   }
 
-  // LOGIKA BISNIS & AUTO-REPLY
   void _setupAutoReplies() {
     if (!_isAutoReply && !_bizGreetingOn && !_bizAwayOn) return;
     
-    // Listener untuk pesan masuk
     _messageListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
-        // Pastikan pesan ini bukan dari kita, dan tipenya teks
         if (data['senderId'] != myUid && data['type'] == 'text') {
            
            String autoReplyText = "";
-           
-           if (_bizGreetingOn) {
-             autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg';
-           } else if (_bizAwayOn) {
-             autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg';
-           } else if (_isAutoReply) {
-             autoReplyText = '🤖 [Auto-Reply]: $_autoReplyMsg';
-           }
+           if (_bizGreetingOn) { autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg'; }
+           else if (_bizAwayOn) { autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg'; }
+           else if (_isAutoReply) { autoReplyText = '🤖 [Auto-Reply]: $_autoReplyMsg'; }
 
            if (autoReplyText.isNotEmpty) {
-             FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
-               'type': 'text', 'text': autoReplyText, 'senderId': myUid, 
-               'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 
-               'timestamp': FieldValue.serverTimestamp(), 'status': 'sent'
-             });
+             FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'text', 'text': autoReplyText, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent'});
            }
         }
       }
@@ -350,17 +337,42 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
-  List<TextSpan> _parseLinks(String text, TextStyle baseStyle) {
-    final List<TextSpan> spans = [];
-    final RegExp urlRegExp = RegExp(r'(https?://[^\s]+)');
-    int start = 0;
-    for (final Match match in urlRegExp.allMatches(text)) {
-      if (match.start > start) { spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle)); }
-      final String url = match.group(0)!;
-      spans.add(TextSpan(text: url, style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline), recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url))));
-      start = match.end;
+  // FUNGSI FORMAT TEKS & LINK
+  List<TextSpan> _parseFormatting(String text, TextStyle baseStyle) {
+    final RegExp combinedRegex = RegExp(r'(\*[^*]+\*|_[^_]+_|~[^~]+~|https?://[^\s]+)');
+    List<TextSpan> spans = [];
+    int lastMatchEnd = 0;
+
+    for (final Match match in combinedRegex.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(text: text.substring(lastMatchEnd, match.start), style: baseStyle));
+      }
+      String matchedText = match.group(0)!;
+      TextStyle newStyle = baseStyle;
+      String cleanText = matchedText;
+
+      if (matchedText.startsWith('*') && matchedText.endsWith('*')) {
+        newStyle = baseStyle.copyWith(fontWeight: FontWeight.bold);
+        cleanText = matchedText.substring(1, matchedText.length - 1);
+      } else if (matchedText.startsWith('_') && matchedText.endsWith('_')) {
+        newStyle = baseStyle.copyWith(fontStyle: FontStyle.italic);
+        cleanText = matchedText.substring(1, matchedText.length - 1);
+      } else if (matchedText.startsWith('~') && matchedText.endsWith('~')) {
+        newStyle = baseStyle.copyWith(decoration: TextDecoration.lineThrough);
+        cleanText = matchedText.substring(1, matchedText.length - 1);
+      } else {
+        newStyle = baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline);
+        spans.add(TextSpan(text: cleanText, style: newStyle, recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(cleanText))));
+        lastMatchEnd = match.end;
+        continue;
+      }
+
+      spans.add(TextSpan(text: cleanText, style: newStyle));
+      lastMatchEnd = match.end;
     }
-    if (start < text.length) { spans.add(TextSpan(text: text.substring(start), style: baseStyle)); }
+    if (lastMatchEnd < text.length) {
+      spans.add(TextSpan(text: text.substring(lastMatchEnd), style: baseStyle));
+    }
     return spans;
   }
 
@@ -733,7 +745,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ); 
                       })
                     ]))
-                    else Text.rich(TextSpan(children: _parseLinks(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)))),
+                    else Text.rich(TextSpan(children: _parseFormatting(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)))),
                     
                     if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
                     Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),

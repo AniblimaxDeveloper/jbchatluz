@@ -7,6 +7,7 @@ import 'storage_manager_screen.dart';
 import 'fake_chat_screen.dart';
 import 'blocked_contacts_screen.dart';
 import 'backup_screen.dart';
+import 'cloud_backup_screen.dart'; // Import layar baru
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -85,14 +86,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Padding(padding: const EdgeInsets.all(16), child: Text('Alat & Penyimpanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.storage, color: Colors.orange), title: Text('Penyimpanan dan Data', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StorageManagerScreen()))),
           ListTile(leading: const Icon(Icons.backup, color: Colors.blue), title: Text('Cadangkan Data (Backup)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackupScreen()))),
+          ListTile(leading: const Icon(Icons.cloud, color: Colors.lightBlue), title: Text('Cloud Backup (Firebase)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CloudBackupScreen()))),
           ListTile(leading: const Icon(Icons.chat_bubble, color: Colors.purple), title: Text('Fake Chat Generator (MOD)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeChatScreen()))),
-
+          
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.block, color: Colors.red), title: Text('Kontak Diblokir', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedContactsScreen()))),
           ListTile(leading: const Icon(Icons.lock), title: Text('Kunci Aplikasi (PIN)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _setPin),
           ListTile(leading: const Icon(Icons.lock_open, color: Colors.red), title: const Text('Hapus PIN', style: TextStyle(color: Colors.red)), onTap: _removePin),
-          
+          SwitchListTile(secondary: const Icon(Icons.done_all, color: Colors.blue), title: Text('Sembunyikan Centang Biru', style: TextStyle(color: textColor)), value: _hideBlueTick, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_tick', val); setState(() => _hideBlueTick = val); }),
+
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('MOD Unlimited (Eksklusif)', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           SwitchListTile(secondary: const Icon(Icons.restore_from_trash, color: Colors.purple), title: Text('Anti-Delete', style: TextStyle(color: textColor)), value: _antiDelete, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_anti_delete', val); setState(() => _antiDelete = val); }),
@@ -101,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SwitchListTile(secondary: const Icon(Icons.mic_off, color: Colors.red), title: Text('Sembunyikan Merekam', style: TextStyle(color: textColor)), value: _hideRecording, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_recording', val); setState(() => _hideRecording = val); }),
           SwitchListTile(secondary: const Icon(Icons.keyboard_hide, color: Colors.orange), title: Text('Sembunyikan "Mengetik"', style: TextStyle(color: textColor)), value: _hideTyping, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_typing', val); setState(() => _hideTyping = val); }),
           SwitchListTile(secondary: const Icon(Icons.public, color: Colors.green), title: Text('Selalu Online', style: TextStyle(color: textColor)), value: _alwaysOnline, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_always_online', val); setState(() => _alwaysOnline = val); }),
-          SwitchListTile(secondary: const Icon(Icons.ac_unit, color: Colors.blue), title: Text('Bekukan Terakhir Dilihat', style: TextStyle(color: textColor)), value: _freezeLastSeen, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_freeze_lastseen', val); setState(() => _freezeLastSeen = val); }),
+          SwitchListTile(secondary: const Icon(Icons.ac_unit, color: Colors.blue), title: Text('Bekukan "Terakhir Dilihat"', style: TextStyle(color: textColor)), value: _freezeLastSeen, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_freeze_lastseen', val); setState(() => _freezeLastSeen = val); }),
           SwitchListTile(secondary: const Icon(Icons.visibility_off, color: Colors.red), title: Text('Sembunyikan Online', style: TextStyle(color: textColor)), value: _hideOnline, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('mod_hide_online', val); setState(() => _hideOnline = val); }),
 
           const Divider(),

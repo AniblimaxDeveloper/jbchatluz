@@ -176,7 +176,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
         return ListTile(
           leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')), 
-          title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange))]), 
+          title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (data['disappearingDuration'] != null && data['disappearingDuration'] > 0) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.timer, size: 14, color: Colors.grey))]), 
           subtitle: Row(children: [if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey), if (isPinned) const SizedBox(width: 4), Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)))]), 
           trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
           onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite), 
@@ -187,7 +187,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final groupName = data['name'] ?? 'Grup'; if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) return;
       tiles.add(ListTile(
         leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)), 
-        title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange))]), 
+        title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (data['disappearingDuration'] != null && data['disappearingDuration'] > 0) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.timer, size: 14, color: Colors.grey))]), 
         trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
         onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite), 
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName)))

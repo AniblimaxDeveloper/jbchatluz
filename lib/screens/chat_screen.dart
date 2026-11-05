@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -47,7 +48,6 @@ class _ChatScreenState extends State<ChatScreen> {
   String _roomType = "private";
   String? _wallpaperPath;
   
-  // State Group Announcement
   bool _isAdmin = false;
   bool _isAnnouncement = false;
   
@@ -119,6 +119,19 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _wallpaperPath = image.path);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Wallpaper diubah.")));
     }
+  }
+
+  // FITUR BARU: LIHAT FOTO PROFIL LAYAR PENUH
+  void _openProfilePicture(String photoData) {
+    if (photoData.isEmpty) return;
+    ImageProvider imageProvider;
+    if (photoData.startsWith('http')) { imageProvider = NetworkImage(photoData); } else { imageProvider = MemoryImage(base64Decode(photoData)); }
+
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(_otherName)),
+      body: Center(child: InteractiveViewer(panEnabled: true, minScale: 0.5, maxScale: 4.0, child: Image(image: imageProvider))),
+    )));
   }
 
   Future<void> _translateMessage(String text) async {
@@ -272,6 +285,29 @@ class _ChatScreenState extends State<ChatScreen> {
       await file.writeAsString(content);
       await OpenFilex.open(file.path);
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
+  }
+
+  // FITUR BARU: TAUTAN OTOMATIS (RICH TEXT)
+  List<TextSpan> _parseLinks(String text, TextStyle baseStyle) {
+    final List<TextSpan> spans = [];
+    final RegExp urlRegExp = RegExp(r'(https?://[^\s]+)');
+    int start = 0;
+    for (final Match match in urlRegExp.allMatches(text)) {
+      if (match.start > start) {
+        spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle));
+      }
+      final String url = match.group(0)!;
+      spans.add(TextSpan(
+        text: url,
+        style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline),
+        recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url)),
+      ));
+      start = match.end;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+    }
+    return spans;
   }
 
   Future<void> _showAttachmentMenu() async {
@@ -510,7 +546,10 @@ class _ChatScreenState extends State<ChatScreen> {
             : InkWell(
                 onTap: () { if (_roomType == 'group' || _roomType == 'channel') { Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName))); } else if (_otherUid.isNotEmpty) { Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid))); } },
                 child: Row(children: [
-                  CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
+                  GestureDetector(
+                    onTap: () => _openProfilePicture(_otherPhoto),
+                    child: CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -607,10 +646,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                     else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
                     else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
-                    else Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      Text(displayText, style: TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)),
-                      if (isEdited) const Padding(padding: EdgeInsets.only(left: 4), child: Text('(diedit)', style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic))),
-                    ]),
+                    else Text.rich(TextSpan(children: _parseLinks(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)))),
+                    
                     if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
                     Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),
                   ]))),
@@ -618,7 +655,6 @@ class _ChatScreenState extends State<ChatScreen> {
               });
             })),
             
-            // GROUP ANNOUNCEMENT LOGIC
             if ((_isBlockedByMe || _hasBlockedMe))
               Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: Text(_isBlockedByMe ? 'Anda telah memblokir kontak ini. Buka blokir di Info Kontak.' : 'Anda tidak dapat mengirim pesan ke kontak ini.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)))
             else if (_isAnnouncement && !_isAdmin)

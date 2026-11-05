@@ -61,6 +61,13 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _autoDownloadAudio = true;
   Color _tickColor = Colors.blue;
   String _autoReplyMsg = "";
+  
+  // State Bisnis
+  bool _bizGreetingOn = false;
+  String _bizGreetingMsg = "";
+  bool _bizAwayOn = false;
+  String _bizAwayMsg = "";
+  
   StreamSubscription? _messageListener;
   StreamSubscription? _typingListener;
   StreamSubscription? _roomListener;
@@ -229,19 +236,46 @@ class _ChatScreenState extends State<ChatScreen> {
       _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
       _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
       _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
+      
+      _bizGreetingOn = prefs.getBool('biz_greeting_on') ?? false;
+      _bizGreetingMsg = prefs.getString('biz_greeting_msg') ?? 'Halo! Terima kasih telah menghubungi kami.';
+      _bizAwayOn = prefs.getBool('biz_away_on') ?? false;
+      _bizAwayMsg = prefs.getString('biz_away_msg') ?? 'Mohon maaf, saat ini saya sedang sibuk.';
+
       final tickStr = prefs.getString('mod_tick_color') ?? 'blue';
       if (tickStr == 'blue') _tickColor = Colors.blue; else if (tickStr == 'grey') _tickColor = Colors.grey; else if (tickStr == 'purple') _tickColor = Colors.purple; else if (tickStr == 'green') _tickColor = Colors.green;
     });
-    _setupAutoReply();
+    _setupAutoReplies();
   }
 
-  void _setupAutoReply() {
-    if (!_isAutoReply) return;
+  // LOGIKA BISNIS & AUTO-REPLY
+  void _setupAutoReplies() {
+    if (!_isAutoReply && !_bizGreetingOn && !_bizAwayOn) return;
+    
+    // Listener untuk pesan masuk
     _messageListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
+        // Pastikan pesan ini bukan dari kita, dan tipenya teks
         if (data['senderId'] != myUid && data['type'] == 'text') {
-           FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'text', 'text': '🤖 [Auto-Reply]: $_autoReplyMsg', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent'});
+           
+           String autoReplyText = "";
+           
+           if (_bizGreetingOn) {
+             autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg';
+           } else if (_bizAwayOn) {
+             autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg';
+           } else if (_isAutoReply) {
+             autoReplyText = '🤖 [Auto-Reply]: $_autoReplyMsg';
+           }
+
+           if (autoReplyText.isNotEmpty) {
+             FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({
+               'type': 'text', 'text': autoReplyText, 'senderId': myUid, 
+               'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 
+               'timestamp': FieldValue.serverTimestamp(), 'status': 'sent'
+             });
+           }
         }
       }
     });
@@ -316,35 +350,23 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
-  // FUNGSI YANG TADI HILANG (UNTUK LINK OTOMATIS)
   List<TextSpan> _parseLinks(String text, TextStyle baseStyle) {
     final List<TextSpan> spans = [];
     final RegExp urlRegExp = RegExp(r'(https?://[^\s]+)');
     int start = 0;
     for (final Match match in urlRegExp.allMatches(text)) {
-      if (match.start > start) {
-        spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle));
-      }
+      if (match.start > start) { spans.add(TextSpan(text: text.substring(start, match.start), style: baseStyle)); }
       final String url = match.group(0)!;
-      spans.add(TextSpan(
-        text: url,
-        style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline),
-        recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url)),
-      ));
+      spans.add(TextSpan(text: url, style: baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline), recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url))));
       start = match.end;
     }
-    if (start < text.length) {
-      spans.add(TextSpan(text: text.substring(start), style: baseStyle));
-    }
+    if (start < text.length) { spans.add(TextSpan(text: text.substring(start), style: baseStyle)); }
     return spans;
   }
 
   void _scheduleMessage() {
     final text = _msgController.text.trim();
-    if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ketik pesan terlebih dahulu sebelum menjadwalkan.')));
-      return;
-    }
+    if (text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ketik pesan terlebih dahulu sebelum menjadwalkan.'))); return; }
     DateTime selectedDate = DateTime.now().add(const Duration(minutes: 5));
     showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Jadwalkan Pesan'), content: Column(mainAxisSize: MainAxisSize.min, children: [
       const Text('Pilih waktu pengiriman pesan:'), const SizedBox(height: 16),
@@ -395,24 +417,21 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showContactPicker() {
     showModalBottomSheet(context: context, builder: (context) {
       return StatefulBuilder(builder: (context, setModalState) {
-        return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance.collection('users').doc(myUid).get(),
-          builder: (context, mySnap) {
-            if (!mySnap.hasData) return const Center(child: CircularProgressIndicator());
-            final List<String> contactUids = List<String>.from((mySnap.data!.data() as Map)['contacts'] ?? []);
-            if (contactUids.isEmpty) return const Center(child: Text('Belum ada kontak.'));
+        return FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(myUid).get(), builder: (context, mySnap) {
+          if (!mySnap.hasData) return const Center(child: CircularProgressIndicator());
+          final List<String> contactUids = List<String>.from((mySnap.data!.data() as Map)['contacts'] ?? []);
+          if (contactUids.isEmpty) return const Center(child: Text('Belum ada kontak.'));
 
-            return ListView.builder(itemCount: contactUids.length, itemBuilder: (context, index) {
-              final uid = contactUids[index];
-              return FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnap) {
-                if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
-                final uData = userSnap.data!.data() as Map<String, dynamic>;
-                final name = uData['displayName'] ?? 'Pengguna'; final jbId = uData['jbId'] ?? ''; final photo = uData['photoBase64'] ?? '';
-                return ListTile(leading: CircleAvatar(backgroundImage: photo.isNotEmpty ? MemoryImage(base64Decode(photo)) : null, child: photo.isEmpty ? const Icon(Icons.person) : null), title: Text(name), subtitle: Text(jbId), onTap: () { Navigator.pop(context); _sendContact(uid, name, jbId, photo); });
-              });
+          return ListView.builder(itemCount: contactUids.length, itemBuilder: (context, index) {
+            final uid = contactUids[index];
+            return FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(uid).get(), builder: (context, userSnap) {
+              if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox.shrink();
+              final uData = userSnap.data!.data() as Map<String, dynamic>;
+              final name = uData['displayName'] ?? 'Pengguna'; final jbId = uData['jbId'] ?? ''; final photo = uData['photoBase64'] ?? '';
+              return ListTile(leading: CircleAvatar(backgroundImage: photo.isNotEmpty ? MemoryImage(base64Decode(photo)) : null, child: photo.isEmpty ? const Icon(Icons.person) : null), title: Text(name), subtitle: Text(jbId), onTap: () { Navigator.pop(context); _sendContact(uid, name, jbId, photo); });
             });
-          },
-        );
+          });
+        });
       });
     });
   }
@@ -552,7 +571,6 @@ class _ChatScreenState extends State<ChatScreen> {
       const Divider(),
       if (widget.roomId != 'global' && _roomType != 'private' && !isMe)
         ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
-      
       ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
       ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
       if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),

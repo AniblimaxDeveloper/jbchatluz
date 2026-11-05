@@ -48,6 +48,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isAntiDelete = false;
   bool _isAutoReply = false;
   bool _antiViewOnce = false;
+  bool _autoDownloadImage = true;
+  bool _autoDownloadAudio = true;
   Color _tickColor = Colors.blue;
   String _autoReplyMsg = "";
   StreamSubscription? _messageListener;
@@ -94,9 +96,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadWallpaper() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _wallpaperPath = prefs.getString('wallpaper_${widget.roomId}') ?? prefs.getString('wallpaper_path');
-    });
+    setState(() { _wallpaperPath = prefs.getString('wallpaper_${widget.roomId}') ?? prefs.getString('wallpaper_path'); });
   }
 
   Future<void> _pickWallpaper() async {
@@ -118,23 +118,9 @@ class _ChatScreenState extends State<ChatScreen> {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final translated = data[0][0][0];
-        if (mounted) {
-          Navigator.pop(context);
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Terjemahan (ID)'),
-              content: Text(translated),
-              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
-            ),
-          );
-        }
-      } else {
-        if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menerjemahkan'))); }
-      }
-    } catch (e) {
-      if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'))); }
-    }
+        if (mounted) { Navigator.pop(context); showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Terjemahan (ID)'), content: Text(translated), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
+      } else { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menerjemahkan'))); } }
+    } catch (e) { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'))); } }
   }
 
   Future<void> _checkBlockStatus() async {
@@ -179,6 +165,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _isAntiDelete = prefs.getBool('mod_anti_delete') ?? false;
       _isAutoReply = prefs.getBool('mod_auto_reply') ?? false;
       _antiViewOnce = prefs.getBool('mod_anti_viewonce') ?? false;
+      _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
+      _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
       _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
       final tickStr = prefs.getString('mod_tick_color') ?? 'blue';
       if (tickStr == 'blue') _tickColor = Colors.blue; else if (tickStr == 'grey') _tickColor = Colors.grey; else if (tickStr == 'purple') _tickColor = Colors.purple; else if (tickStr == 'green') _tickColor = Colors.green;
@@ -278,6 +266,35 @@ class _ChatScreenState extends State<ChatScreen> {
     ])));
   }
 
+  void _sendSticker(String stickerUrl) async {
+    Timestamp? expiresAt; if (_disappearingDuration > 0) expiresAt = Timestamp.fromDate(DateTime.now().add(Duration(milliseconds: _disappearingDuration)));
+    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'sticker', 'mediaUrl': stickerUrl, 'text': '', 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent', 'expiresAt': expiresAt});
+    if (widget.roomId != 'global') { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'lastMessage': 'Stiker', 'lastMessageTime': FieldValue.serverTimestamp()}); }
+    Navigator.pop(context);
+  }
+
+  void _showStickerPicker() {
+    final stickers = [
+      'https://i.imgur.com/3h4k5qP.png', // Contoh URL Stiker (Anda bisa ganti dengan URL stiker asli)
+      'https://i.imgur.com/8QO2v9w.png',
+      'https://i.imgur.com/9Xz7l2b.png',
+      'https://i.imgur.com/K5zP4qJ.png',
+    ];
+    showModalBottomSheet(context: context, builder: (context) {
+      return Container(
+        height: 250, padding: const EdgeInsets.all(8),
+        child: GridView.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8),
+          itemCount: stickers.length,
+          itemBuilder: (context, index) => GestureDetector(
+            onTap: () => _sendSticker(stickers[index]),
+            child: Image.network(stickers[index], fit: BoxFit.contain),
+          ),
+        ),
+      );
+    });
+  }
+
   Future<void> _pickDocument() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles();
     if (result == null) return;
@@ -374,10 +391,7 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
-      
-      // TOMBOL TERJEMAHKAN
       ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
-      
       ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
       if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
       if (data['type'] != 'text' && data['type'] != 'poll') ListTile(leading: const Icon(Icons.share, color: Colors.green), title: const Text('Bagikan ke...', style: TextStyle(color: Colors.green)), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
@@ -476,9 +490,19 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
                     if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
-                    if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
+                    
+                    // RENDER AUTO-DOWNLOAD LOGIC
+                    if (type == 'image' && !_autoDownloadImage && !isMe)
+                      GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Foto', style: TextStyle(color: Colors.blue))])))
+                    else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
                     else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)))
+                    
+                    else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
+                    
+                    else if (type == 'audio' && !_autoDownloadAudio && !isMe)
+                       Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
                     else if (type == 'audio') Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_fill, color: isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), const Text(' Pesan Suara')])
+                    
                     else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
                     else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
                     else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
@@ -500,6 +524,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
                   IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
+                  IconButton(icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.grey), onPressed: _showStickerPicker), // Tombol Stiker
                   IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
                   Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
                 ]))),

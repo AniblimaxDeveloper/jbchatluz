@@ -129,11 +129,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               var allRooms = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid)); }).toList();
               
+              // FILTER CHAT TERKUNCI
               final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
               final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true && (doc.data() as Map)['isLocked'] != true).toList();
               var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true && (doc.data() as Map)['isArchived'] != true).toList();
 
-              // LOGIKA FILTER
               if (_activeFilter == 'Grup') {
                 activeRooms = activeRooms.where((doc) => (doc.data() as Map)['type'] == 'group' || (doc.data() as Map)['type'] == 'channel').toList();
               } else if (_activeFilter == 'Favorit') {
@@ -145,7 +145,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
               List<Widget> tiles = [];
               
               if (archivedRooms.isNotEmpty && _activeFilter == 'Semua') { tiles.add(ListTile(leading: const Icon(Icons.archive, color: Colors.grey), title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)), onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen))); if (_isArchiveFolderOpen) { for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); } } }
-              if (lockedRooms.isNotEmpty && _activeFilter == 'Semua') { tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } } }
+              
+              // TAMPILKAN FOLDER TERKUNCI
+              if (lockedRooms.isNotEmpty && _activeFilter == 'Semua') { 
+                tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); 
+                if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } } 
+              }
               
               if (activeRooms.isEmpty && tiles.isEmpty) { return const Center(child: Text('Tidak ada chat.', style: TextStyle(color: Colors.grey))); }
               

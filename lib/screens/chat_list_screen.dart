@@ -15,6 +15,7 @@ import 'add_contact_screen.dart';
 import 'contacts_screen.dart';
 import 'broadcast_screen.dart';
 import 'linked_devices_screen.dart';
+import 'global_search_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -42,13 +43,32 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return result ?? false;
   }
 
+  // FITUR BARU: TANDAI SEMUA SEBAGAI DIBACA
+  Future<void> _markAllAsRead() async {
+    try {
+      final rooms = await FirebaseFirestore.instance.collection('rooms').where('members', arrayContains: myUid).get();
+      final batch = FirebaseFirestore.instance.batch();
+      int count = 0;
+      for (var room in rooms.docs) {
+        final msgs = await room.reference.collection('messages').where('status', isEqualTo: 'sent').get();
+        for (var m in msgs.docs) { batch.update(m.reference, {'status': 'read'}); count++; }
+      }
+      if (count > 0) await batch.commit();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semua chat ditandai telah dibaca')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
+    }
+  }
+
   void _showPopupMenu() {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(leading: const Icon(Icons.search), title: const Text('Pencarian Global'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const GlobalSearchScreen())); }),
       ListTile(leading: const Icon(Icons.contacts), title: const Text('Buku Kontak'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen())); }),
       ListTile(leading: const Icon(Icons.group), title: const Text('Grup baru'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen(type: 'group'))); }),
       ListTile(leading: const Icon(Icons.cell_tower), title: const Text('Daftar siaran'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const BroadcastScreen())); }),
       ListTile(leading: const Icon(Icons.devices), title: const Text('Perangkat tertaut'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const LinkedDevicesScreen())); }),
       ListTile(leading: const Icon(Icons.star), title: const Text('Berbintang'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen())); }),
+      ListTile(leading: const Icon(Icons.done_all, color: Colors.blue), title: const Text('Tandai Semua Dibaca', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _markAllAsRead(); }),
       ListTile(leading: const Icon(Icons.settings), title: const Text('Pengaturan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())); }),
     ])));
   }
@@ -129,7 +149,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFF00A884)));
               var allRooms = snapshot.data!.docs.where((doc) { final data = doc.data() as Map<String, dynamic>; return data['type'] == 'group' || data['type'] == 'channel' || (data['members'] != null && (data['members'] as List).contains(myUid)); }).toList();
-              
+
               final lockedRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] == true).toList();
               final archivedRooms = allRooms.where((doc) => (doc.data() as Map)['isArchived'] == true && (doc.data() as Map)['isLocked'] != true).toList();
               var activeRooms = allRooms.where((doc) => (doc.data() as Map)['isLocked'] != true && (doc.data() as Map)['isArchived'] != true).toList();
@@ -141,18 +161,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
               }
 
               activeRooms.sort((a, b) { final aPinned = (a.data() as Map)['isPinned'] == true; final bPinned = (b.data() as Map)['isPinned'] == true; if (aPinned && !bPinned) return -1; if (!aPinned && bPinned) return 1; Timestamp aTime = (a.data() as Map)['lastMessageTime'] ?? Timestamp.now(); Timestamp bTime = (b.data() as Map)['lastMessageTime'] ?? Timestamp.now(); return bTime.compareTo(aTime); });
-              
+
               List<Widget> tiles = [];
-              
+
               if (archivedRooms.isNotEmpty && _activeFilter == 'Semua') { tiles.add(ListTile(leading: const Icon(Icons.archive, color: Colors.grey), title: Text('Diarsipkan', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${archivedRooms.length}', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)), onTap: () => setState(() => _isArchiveFolderOpen = !_isArchiveFolderOpen))); if (_isArchiveFolderOpen) { for (var doc in archivedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: true); } } }
-              
-              if (lockedRooms.isNotEmpty && _activeFilter == 'Semua') { 
-                tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } })); 
-                if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } } 
+
+              if (lockedRooms.isNotEmpty && _activeFilter == 'Semua') {
+                tiles.add(ListTile(leading: const Icon(Icons.lock, color: Color(0xFF25D366)), title: Text('Chat Terkunci', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)), trailing: Text('${lockedRooms.length}', style: const TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold)), onTap: () async { if (!_isLockedFolderOpen) { final unlocked = await _verifyPin(); if (unlocked) setState(() => _isLockedFolderOpen = true); } else { setState(() => _isLockedFolderOpen = false); } }));
+                if (_isLockedFolderOpen) { for (var doc in lockedRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); } }
               }
-              
+
               if (activeRooms.isEmpty && tiles.isEmpty) { return const Center(child: Text('Tidak ada chat.', style: TextStyle(color: Colors.grey))); }
-              
+
               for (var doc in activeRooms) { _buildRoomTile(doc, textColor, isDark, tiles, showArchived: false); }
               return ListView(children: tiles);
             },
@@ -167,29 +187,69 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final isPrivate = data['type'] == 'private'; final isPinned = data['isPinned'] == true; final isLocked = data['isLocked'] == true; final isArchived = data['isArchived'] == true; final isFavorite = data['isFavorite'] == true; final isMuted = data['isMuted'] == true;
     final time = data['lastMessageTime'] != null ? DateFormat('HH:mm').format((data['lastMessageTime'] as Timestamp).toDate()) : '';
     if (isArchived && !showArchived) return;
+
+    // Widget trailing dengan Badge Belum Dibaca
+    Widget buildTrailing(int unreadCount) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(time, style: TextStyle(color: unreadCount > 0 ? const Color(0xFF25D366) : Colors.grey, fontSize: 12)),
+          if (unreadCount > 0) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF25D366), borderRadius: BorderRadius.circular(10)),
+              child: Text(unreadCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+            )
+          ]
+        ],
+      );
+    }
+
     if (isPrivate) {
       String otherUid = (data['members'] as List).firstWhere((id) => id != myUid, orElse: () => '');
-      tiles.add(FutureBuilder<DocumentSnapshot>(future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(), builder: (context, userSnap) {
-        String name = 'Pengguna'; String status = data['lastMessage'] ?? ''; ImageProvider? avatarImage;
-        if (userSnap.hasData && userSnap.data!.exists) { final uData = userSnap.data!.data() as Map<String, dynamic>; name = uData['displayName'] ?? uData['email'] ?? 'Pengguna'; if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) avatarImage = MemoryImage(base64Decode(uData['photoBase64'])); }
-        if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
-        return ListTile(
-          leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')), 
-          title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]), 
-          subtitle: Row(children: [if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey), if (isPinned) const SizedBox(width: 4), Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)))]), 
-          trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
-          onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted), 
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name)))
-        );
-      }));
+      tiles.add(StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('rooms').doc(doc.id).collection('messages').where('status', isEqualTo: 'sent').snapshots(),
+        builder: (context, msgSnap) {
+          final unreadCount = (msgSnap.data?.docs ?? []).where((d) => (d.data() as Map)['senderId'] != myUid).length;
+          
+          return FutureBuilder<DocumentSnapshot>(
+            future: FirebaseFirestore.instance.collection('users').doc(otherUid).get(),
+            builder: (context, userSnap) {
+              String name = 'Pengguna'; String status = data['lastMessage'] ?? ''; ImageProvider? avatarImage;
+              if (userSnap.hasData && userSnap.data!.exists) { final uData = userSnap.data!.data() as Map<String, dynamic>; name = uData['displayName'] ?? uData['email'] ?? 'Pengguna'; if (uData['photoBase64'] != null && uData['photoBase64'].toString().isNotEmpty) avatarImage = MemoryImage(base64Decode(uData['photoBase64'])); }
+              if (_searchQuery.isNotEmpty && !name.toLowerCase().contains(_searchQuery) && !status.toLowerCase().contains(_searchQuery)) return const SizedBox.shrink();
+              
+              return ListTile(
+                leading: CircleAvatar(radius: 26, backgroundImage: avatarImage ?? const NetworkImage('https://i.pravatar.cc/150?img=12')),
+                title: Row(children: [Text(name, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]),
+                subtitle: Row(children: [if (isPinned) const Icon(Icons.push_pin, size: 14, color: Colors.grey), if (isPinned) const SizedBox(width: 4), Expanded(child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey : Colors.black54)))]),
+                trailing: buildTrailing(unreadCount),
+                onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: name)))
+              );
+            },
+          );
+        }
+      ));
     } else {
-      final groupName = data['name'] ?? 'Grup'; if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) return;
-      tiles.add(ListTile(
-        leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)), 
-        title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]), 
-        trailing: Text(time, style: const TextStyle(color: Colors.grey, fontSize: 12)), 
-        onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted), 
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName)))
+      final groupName = data['name'] ?? 'Grup';
+      if (_searchQuery.isNotEmpty && !groupName.toLowerCase().contains(_searchQuery)) return;
+
+      tiles.add(StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('rooms').doc(doc.id).collection('messages').where('status', isEqualTo: 'sent').snapshots(),
+        builder: (context, msgSnap) {
+          final unreadCount = (msgSnap.data?.docs ?? []).where((d) => (d.data() as Map)['senderId'] != myUid).length;
+          
+          return ListTile(
+            leading: CircleAvatar(radius: 26, backgroundColor: Colors.blueGrey, child: Icon(data['type'] == 'channel' ? Icons.campaign : Icons.group, color: Colors.white)),
+            title: Row(children: [Text(groupName, style: TextStyle(fontWeight: FontWeight.bold, color: textColor)), if (isLocked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.lock, size: 14, color: Colors.grey)), if (isFavorite) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.star, size: 14, color: Colors.orange)), if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.volume_off, size: 14, color: Colors.grey))]),
+            trailing: buildTrailing(unreadCount),
+            onLongPress: () => _showChatOptions(doc.id, isArchived, isPinned, isLocked, isFavorite, isMuted),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(roomId: doc.id, roomName: groupName)))
+          );
+        }
       ));
     }
   }

@@ -101,7 +101,6 @@ class _StatusScreenState extends State<StatusScreen> {
     );
   }
 
-  // FUNGSI SIMPAN STATUS
   Future<void> _downloadStatus(String base64String) async {
     try {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Menyimpan status...')));
@@ -109,6 +108,39 @@ class _StatusScreenState extends State<StatusScreen> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status berhasil disimpan ke Galeri!')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
+    }
+  }
+
+  // FUNGSI STATUS REACTION (KIRIM PESAN KE PEMILIK STATUS)
+  Future<void> _sendStatusReaction(String targetUid, String emoji) async {
+    try {
+      final roomQuery = await FirebaseFirestore.instance.collection('rooms')
+          .where('type', isEqualTo: 'private')
+          .where('members', arrayContains: myUid).get();
+
+      String roomId = '';
+      for (var doc in roomQuery.docs) {
+        final members = doc.data()['members'] as List;
+        if (members.contains(targetUid)) { roomId = doc.id; break; }
+      }
+
+      if (roomId.isEmpty) {
+        final newRoom = await FirebaseFirestore.instance.collection('rooms').add({
+          'type': 'private', 'members': [myUid, targetUid],
+          'lastMessage': 'Status Reaction', 'lastMessageTime': FieldValue.serverTimestamp(),
+        });
+        roomId = newRoom.id;
+      }
+
+      await FirebaseFirestore.instance.collection('rooms').doc(roomId).collection('messages').add({
+        'type': 'text', 'text': 'Bereaksi $emoji pada status Anda',
+        'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
+        'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
+      });
+      
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reaksi terkirim!')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
     }
   }
 
@@ -124,35 +156,35 @@ class _StatusScreenState extends State<StatusScreen> {
         foregroundColor: Colors.white, 
         title: Text(data['userName'] ?? 'Status'), 
         actions: [
-          // Tombol Download Status
-          if (data['type'] != 'text') 
-            IconButton(
-              icon: const Icon(Icons.download), 
-              onPressed: () => _downloadStatus(data['photoBase64'])
-            ),
-          // Tombol Lihat Viewers (Jika status sendiri)
-          if (data['uid'] == myUid) 
-            IconButton(
-              icon: const Icon(Icons.remove_red_eye), 
-              onPressed: () { 
-                showDialog(context: context, builder: (_) => AlertDialog(
-                  title: const Text('Dilihat oleh'), 
-                  content: Text('${views.length} orang telah melihat status ini.'), 
-                  actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))]
-                )); 
-              }
-            )
+          if (data['type'] != 'text') IconButton(icon: const Icon(Icons.download), onPressed: () => _downloadStatus(data['photoBase64'])),
+          if (data['uid'] == myUid) IconButton(icon: const Icon(Icons.remove_red_eye), onPressed: () { showDialog(context: context, builder: (_) => AlertDialog(title: const Text('Dilihat oleh'), content: Text('${views.length} orang telah melihat status ini.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); })
         ]
       ),
-      body: Center(
-        child: data['type'] == 'text'
-            ? Container(
-                width: double.infinity, height: double.infinity,
-                color: Color(data['backgroundColor']),
-                alignment: Alignment.center, padding: const EdgeInsets.all(24),
-                child: Text(data['text'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-              )
-            : InteractiveViewer(child: Image.memory(base64Decode(data['photoBase64']))),
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: data['type'] == 'text'
+                  ? Container(width: double.infinity, height: double.infinity, color: Color(data['backgroundColor']), alignment: Alignment.center, padding: const EdgeInsets.all(24), child: Text(data['text'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold), textAlign: TextAlign.center))
+                  : InteractiveViewer(child: Image.memory(base64Decode(data['photoBase64']))),
+            ),
+          ),
+          // UI REAKSI STATUS
+          if (data['uid'] != myUid)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+              color: Colors.black54,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: ['❤️', '😂', '😮', '😢', '👏'].map((emoji) {
+                  return GestureDetector(
+                    onTap: () { _sendStatusReaction(data['uid'], emoji); Navigator.pop(context); },
+                    child: Text(emoji, style: const TextStyle(fontSize: 32)),
+                  );
+                }).toList(),
+              ),
+            )
+        ],
       ),
     )));
   }

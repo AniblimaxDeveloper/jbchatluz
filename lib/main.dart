@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -39,11 +40,68 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
   bool _isLocked = false;
   bool _isCheckingLock = true;
   final LocalAuthentication _auth = LocalAuthentication();
+  Timer? _scheduleTimer;
 
   @override
-  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _checkAppLock(); }
+  void initState() { 
+    super.initState(); 
+    WidgetsBinding.instance.addObserver(this); 
+    _checkAppLock(); 
+    _startScheduleChecker(); // Memulai timer pengecekan jadwal
+  }
+  
   @override
-  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  void dispose() { 
+    _scheduleTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this); 
+    super.dispose(); 
+  }
+
+  void _startScheduleChecker() {
+    _scheduleTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      
+      try {
+        final now = Timestamp.now();
+        final snap = await FirebaseFirestore.instance.collection('scheduled_messages')
+            .where('senderId', isEqualTo: user.uid)
+            .where('status', isEqualTo: 'pending')
+            .get();
+
+        for (var doc in snap.docs) {
+          final data = doc.data();
+          final scheduledTime = data['scheduledTime'] as Timestamp?;
+          
+          if (scheduledTime != null && scheduledTime.toDate().isBefore(now.toDate())) {
+            final roomId = data['roomId'];
+            final text = data['text'];
+            
+            // Kirim pesan ke ruangan
+            await FirebaseFirestore.instance.collection('rooms').doc(roomId).collection('messages').add({
+              'type': 'text',
+              'text': text,
+              'senderId': user.uid,
+              'senderName': user.displayName ?? 'User',
+              'timestamp': FieldValue.serverTimestamp(),
+              'status': 'sent',
+            });
+            
+            // Update pesan terakhir
+            await FirebaseFirestore.instance.collection('rooms').doc(roomId).update({
+              'lastMessage': text,
+              'lastMessageTime': FieldValue.serverTimestamp(),
+            });
+
+            // Hapus dari antrean jadwal karena sudah terkirim
+            await doc.reference.delete();
+          }
+        }
+      } catch (e) {
+        debugPrint("Error executing scheduled messages: $e");
+      }
+    });
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
@@ -103,10 +161,7 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
             theme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.light, textTheme: _getTextTheme(currentFont)),
             darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF0B141A), textTheme: _getTextTheme(currentFont)),
             builder: (context, child) {
-              return MediaQuery(
-                data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentSize)),
-                child: child!,
-              );
+              return MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentSize)), child: child!);
             },
             home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false), authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
           );

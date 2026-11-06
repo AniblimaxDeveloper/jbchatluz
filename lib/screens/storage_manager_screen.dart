@@ -43,11 +43,17 @@ class _StorageManagerScreenState extends State<StorageManagerScreen> {
   Future<void> _clearCache() async {
     setState(() => _isLoading = true);
     try {
+      // 1. Hapus file sementara
       final cacheDir = await getTemporaryDirectory();
       if (cacheDir.existsSync()) {
         cacheDir.deleteSync(recursive: true);
         cacheDir.createSync();
       }
+      
+      // 2. Hapus cache gambar/video dari memori aplikasi
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cache berhasil dibersihkan!')));
       }

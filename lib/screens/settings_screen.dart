@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import '../main.dart';
 import 'storage_manager_screen.dart';
@@ -28,6 +30,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _freezeLastSeen = false;
   bool _hideOnline = false;
   bool _hideBlueTick = false;
+  bool _hideProfilePhoto = false;
+  bool _hideAbout = false;
   bool _autoViewStatus = false;
   bool _antiViewOnce = false;
   bool _hideRecording = false;
@@ -37,7 +41,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _fontSize = 1.0;
 
   @override
-  void initState() { super.initState(); _loadSettings(); }
+  void initState() { super.initState(); _loadSettings();
+    _loadPrivacySettings(); }
+
+  
+  Future<void> _loadPrivacySettings() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    if (doc.exists) {
+      final data = doc.data()!;
+      setState(() {
+        _hideProfilePhoto = data['privacyHidePhoto'] ?? false;
+        _hideAbout = data['privacyHideAbout'] ?? false;
+      });
+    }
+  }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -92,6 +111,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(leading: const Icon(Icons.chat_bubble, color: Colors.purple), title: Text('Fake Chat Generator', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeChatScreen()))),
           ListTile(leading: const Icon(Icons.phone_callback, color: Colors.redAccent), title: Text('Panggilan Palsu (Fake Call)', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FakeCallScreen(callerName: 'Boss Kantor')))),
           
+          
+          const Divider(),
+          Padding(padding: const EdgeInsets.all(16), child: Text('Privasi Profil', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
+          SwitchListTile(
+            secondary: const Icon(Icons.visibility_off, color: Colors.blue),
+            title: Text('Sembunyikan Foto Profil', style: TextStyle(color: textColor)),
+            subtitle: const Text('Foto hanya terlihat oleh kontak Anda'),
+            value: _hideProfilePhoto,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              setState(() => _hideProfilePhoto = val);
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'privacyHidePhoto': val});
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.info_outline, color: Colors.orange),
+            title: Text('Sembunyikan Status Tentang', style: TextStyle(color: textColor)),
+            subtitle: const Text('Tentang hanya terlihat oleh kontak Anda'),
+            value: _hideAbout,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              setState(() => _hideAbout = val);
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) await FirebaseFirestore.instance.collection('users').doc(user.uid).update({'privacyHideAbout': val});
+            },
+          ),
+
           const Divider(),
           Padding(padding: const EdgeInsets.all(16), child: Text('Privasi & Keamanan', style: TextStyle(fontWeight: FontWeight.bold, color: textColor))),
           ListTile(leading: const Icon(Icons.block, color: Colors.red), title: Text('Kontak Diblokir', style: TextStyle(color: textColor)), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedContactsScreen()))),

@@ -15,6 +15,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   final String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
   bool _isBlocked = false;
   bool _isLoading = true;
+  bool _isContact = false;
 
   @override
   void initState() { super.initState(); _checkBlockStatus(); }
@@ -23,7 +24,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final doc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
     if (doc.exists) {
       final blocked = (doc.data()!['blockedUsers'] as List?) ?? [];
-      setState(() { _isBlocked = blocked.contains(widget.userId); _isLoading = false; });
+      final contacts = (doc.data()!['contacts'] as List?) ?? [];
+      setState(() { 
+        _isBlocked = blocked.contains(widget.userId); 
+        _isContact = contacts.contains(widget.userId);
+        _isLoading = false; 
+      });
     }
   }
 
@@ -77,19 +83,35 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         future: FirebaseFirestore.instance.collection('users').doc(widget.userId).get(),
         builder: (context, snapshot) {
           if (!snapshot.hasData || !snapshot.data!.exists) return const Center(child: Text('Pengguna tidak ditemukan'));
+          
           final data = snapshot.data!.data() as Map<String, dynamic>;
           final name = data['displayName'] ?? 'Pengguna';
           final email = data['email'] ?? '';
           final jbId = data['jbId'] ?? '';
-          final about = data['about'] ?? 'Tersedia';
+          
+          // TERAPKAN PRIVASI
+          final hidePhoto = data['privacyHidePhoto'] == true;
+          final hideAbout = data['privacyHideAbout'] == true;
+          
+          final about = (hideAbout && !_isContact) ? 'Tersedia' : (data['about'] ?? 'Tersedia');
+          
           ImageProvider? avatar;
-          if (data['photoBase64'] != null && data['photoBase64'].toString().isNotEmpty) { avatar = MemoryImage(base64Decode(data['photoBase64'])); } 
-          else if (data['photoURL'] != null && data['photoURL'].toString().isNotEmpty) { avatar = NetworkImage(data['photoURL']); }
+          if (!hidePhoto || _isContact) {
+            if (data['photoBase64'] != null && data['photoBase64'].toString().isNotEmpty) { avatar = MemoryImage(base64Decode(data['photoBase64'])); } 
+            else if (data['photoURL'] != null && data['photoURL'].toString().isNotEmpty) { avatar = NetworkImage(data['photoURL']); }
+          }
 
           return ListView(
             children: [
               const SizedBox(height: 30),
-              Center(child: CircleAvatar(radius: 70, backgroundImage: avatar ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300])),
+              Center(
+                child: CircleAvatar(
+                  radius: 70,
+                  backgroundImage: avatar,
+                  backgroundColor: Colors.grey[300],
+                  child: avatar == null ? const Icon(Icons.person, size: 70, color: Colors.white) : null,
+                ),
+              ),
               const SizedBox(height: 20),
               Center(child: Text(name, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor))),
               const SizedBox(height: 8),

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_screen.dart';
 import 'join_group_screen.dart';
+import 'qr_scanner_screen.dart';
 
 class AddContactScreen extends StatefulWidget {
   const AddContactScreen({super.key});
@@ -89,7 +90,15 @@ class _AddContactScreenState extends State<AddContactScreen> {
             TextField(
               controller: _idController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'JBchatluz ID', border: OutlineInputBorder(), prefixIcon: Icon(Icons.numbers)),
+              decoration: InputDecoration(
+                labelText: 'JBchatluz ID', 
+                border: const OutlineInputBorder(), 
+                prefixIcon: const Icon(Icons.numbers),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF25D366)),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerScreen())),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             SizedBox(

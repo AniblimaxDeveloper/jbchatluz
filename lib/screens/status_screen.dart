@@ -85,7 +85,7 @@ class _StatusScreenState extends State<StatusScreen> {
                     if (textController.text.trim().isNotEmpty) {
                       await FirebaseFirestore.instance.collection('statuses').add({
                         'uid': myUid, 'userName': FirebaseAuth.instance.currentUser?.displayName ?? 'User',
-                        'type': 'text', 'text': textController.text.trim(), 'backgroundColor': selectedColor.value,
+                        'type': 'text', 'text': textController.text.trim(), 'backgroundColor': selectedColor.value, 'isPinned': true, 'isPinned': true,
                         'timestamp': FieldValue.serverTimestamp(), 'views': []
                       });
                       if (context.mounted) Navigator.pop(context);

@@ -16,15 +16,23 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   bool _isBlocked = false;
   bool _isLoading = true;
   bool _isContact = false;
+  bool _hideOnlineFromMe = false; // FITUR 9
 
   @override
   void initState() { super.initState(); _checkBlockStatus(); }
 
   Future<void> _checkBlockStatus() async {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
-    if (doc.exists) {
-      final blocked = (doc.data()!['blockedUsers'] as List?) ?? [];
-      final contacts = (doc.data()!['contacts'] as List?) ?? [];
+    final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
+    final otherDoc = await FirebaseFirestore.instance.collection('users').doc(widget.userId).get();
+    if (myDoc.exists) {
+      final blocked = (myDoc.data()!['blockedUsers'] as List?) ?? [];
+      final contacts = (myDoc.data()!['contacts'] as List?) ?? [];
+      
+      if (otherDoc.exists) {
+        final otherBlocked = (otherDoc.data()!['blockedUsers'] as List?) ?? [];
+        _hideOnlineFromMe = otherBlocked.contains(myUid); // Jika dia memblokir kita
+      }
+
       setState(() { 
         _isBlocked = blocked.contains(widget.userId); 
         _isContact = contacts.contains(widget.userId);
@@ -89,7 +97,6 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           final email = data['email'] ?? '';
           final jbId = data['jbId'] ?? '';
           
-          // TERAPKAN PRIVASI
           final hidePhoto = data['privacyHidePhoto'] == true;
           final hideAbout = data['privacyHideAbout'] == true;
           
@@ -116,6 +123,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               Center(child: Text(name, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor))),
               const SizedBox(height: 8),
               Center(child: Text(email, style: const TextStyle(fontSize: 16, color: Colors.grey))),
+              
+              // STATUS ONLINE (Disembunyikan jika _hideOnlineFromMe true)
+              if (!_hideOnlineFromMe && data['isOnline'] == true)
+                const Center(child: Text('Online', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold))),
+              
               const SizedBox(height: 24),
               const Divider(),
               ListTile(leading: const Icon(Icons.info_outline, color: Colors.grey), title: Text('Tentang', style: TextStyle(color: Colors.grey, fontSize: 14)), subtitle: Text(about, style: TextStyle(color: textColor, fontSize: 16))),

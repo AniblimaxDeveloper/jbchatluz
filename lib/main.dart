@@ -15,6 +15,7 @@ final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 final ValueNotifier<String> fontNotifier = ValueNotifier("Default");
 final ValueNotifier<Color> bubbleColorNotifier = ValueNotifier(const Color(0xFFD9FDD3));
 final ValueNotifier<double> fontSizeNotifier = ValueNotifier(1.0);
+final ValueNotifier<double> bubbleRadiusNotifier = ValueNotifier(12.0); // FITUR 3
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ void main() async {
   fontNotifier.value = prefs.getString('app_font') ?? "Default";
   bubbleColorNotifier.value = Color(prefs.getInt('bubble_color') ?? 0xFFD9FDD3);
   fontSizeNotifier.value = prefs.getDouble('font_size_scale') ?? 1.0;
+  bubbleRadiusNotifier.value = prefs.getDouble('bubble_radius') ?? 12.0;
 
   runApp(const JBChatLuzApp());
 }
@@ -41,18 +43,22 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
   bool _isCheckingLock = true;
   final LocalAuthentication _auth = LocalAuthentication();
   Timer? _scheduleTimer;
+  Timer? _inactivityTimer; // FITUR 8
+  int _autoLockMinutes = 0;
+  String _appPin = "";
 
   @override
   void initState() { 
     super.initState(); 
     WidgetsBinding.instance.addObserver(this); 
     _checkAppLock(); 
-    _startScheduleChecker(); // Memulai timer pengecekan jadwal
+    _startScheduleChecker(); 
   }
   
   @override
   void dispose() { 
     _scheduleTimer?.cancel();
+    _inactivityTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this); 
     super.dispose(); 
   }
@@ -64,10 +70,7 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
       
       try {
         final now = Timestamp.now();
-        final snap = await FirebaseFirestore.instance.collection('scheduled_messages')
-            .where('senderId', isEqualTo: user.uid)
-            .where('status', isEqualTo: 'pending')
-            .get();
+        final snap = await FirebaseFirestore.instance.collection('scheduled_messages').where('senderId', isEqualTo: user.uid).where('status', isEqualTo: 'pending').get();
 
         for (var doc in snap.docs) {
           final data = doc.data();
@@ -77,30 +80,29 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
             final roomId = data['roomId'];
             final text = data['text'];
             
-            // Kirim pesan ke ruangan
             await FirebaseFirestore.instance.collection('rooms').doc(roomId).collection('messages').add({
-              'type': 'text',
-              'text': text,
-              'senderId': user.uid,
-              'senderName': user.displayName ?? 'User',
-              'timestamp': FieldValue.serverTimestamp(),
-              'status': 'sent',
+              'type': 'text', 'text': text, 'senderId': user.uid, 'senderName': user.displayName ?? 'User',
+              'timestamp': FieldValue.serverTimestamp(), 'status': 'sent',
             });
             
-            // Update pesan terakhir
             await FirebaseFirestore.instance.collection('rooms').doc(roomId).update({
-              'lastMessage': text,
-              'lastMessageTime': FieldValue.serverTimestamp(),
+              'lastMessage': text, 'lastMessageTime': FieldValue.serverTimestamp(),
             });
 
-            // Hapus dari antrean jadwal karena sudah terkirim
             await doc.reference.delete();
           }
         }
-      } catch (e) {
-        debugPrint("Error executing scheduled messages: $e");
-      }
+      } catch (e) { debugPrint("Error scheduled: $e"); }
     });
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (_autoLockMinutes > 0 && _appPin.isNotEmpty) {
+      _inactivityTimer = Timer(Duration(minutes: _autoLockMinutes), () {
+        if (mounted) setState(() => _isLocked = true);
+      });
+    }
   }
 
   @override
@@ -112,6 +114,10 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
     final isGhostMode = prefs.getBool('mod_hide_online') ?? false;
     final isAlwaysOnline = prefs.getBool('mod_always_online') ?? false;
     final isFreezeLastSeen = prefs.getBool('mod_freeze_lastseen') ?? false;
+
+    if (state == AppLifecycleState.resumed) {
+      _resetInactivityTimer(); // FITUR 8
+    }
 
     if (isAlwaysOnline) { FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': true, 'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {}); return; }
     if (isGhostMode) { FirebaseFirestore.instance.collection('users').doc(user.uid).update({'isOnline': false}).catchError((e) {}); if (!isFreezeLastSeen) FirebaseFirestore.instance.collection('users').doc(user.uid).update({'lastSeen': FieldValue.serverTimestamp()}).catchError((e) {}); return; }
@@ -129,7 +135,9 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
       final prefs = await SharedPreferences.getInstance();
       final pin = prefs.getString('app_pin') ?? "";
       final isBio = prefs.getBool('biometric_lock') ?? false;
-      if (mounted) setState(() { _isLocked = pin.isNotEmpty || isBio; _isCheckingLock = false; });
+      _autoLockMinutes = prefs.getInt('auto_lock_minutes') ?? 0;
+      _appPin = pin;
+      if (mounted) setState(() { _isLocked = pin.isNotEmpty || isBio; _isCheckingLock = false; _resetInactivityTimer(); });
     } catch (e) { if (mounted) setState(() { _isLocked = false; _isCheckingLock = false; }); }
   }
 
@@ -161,9 +169,13 @@ class _JBChatLuzAppState extends State<JBChatLuzApp> with WidgetsBindingObserver
             theme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.light, textTheme: _getTextTheme(currentFont)),
             darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF00A884), useMaterial3: true, brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF0B141A), textTheme: _getTextTheme(currentFont)),
             builder: (context, child) {
-              return MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentSize)), child: child!);
+              return GestureDetector(
+                onTap: _resetInactivityTimer, // FITUR 8: Deteksi sentuhan untuk reset timer
+                onPanUpdate: (_) => _resetInactivityTimer(),
+                child: MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentSize)), child: child!),
+              );
             },
-            home: _isLocked ? LockScreen(onUnlocked: () => setState(() => _isLocked = false), authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
+            home: _isLocked ? LockScreen(onUnlocked: () { setState(() => _isLocked = false); _resetInactivityTimer(); }, authBiometric: _authenticateBiometric) : StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator()); if (snapshot.hasData) return const ChatListScreen(); return const AuthScreen(); }),
           );
         });
       });

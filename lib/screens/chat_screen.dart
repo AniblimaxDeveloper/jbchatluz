@@ -75,6 +75,21 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _bizAwayOn = false;
   String _bizAwayMsg = "";
   
+  // Fitur 10: Keyword Auto-Reply
+  bool _keywordAutoReplyOn = false;
+  String _keyword = "harga";
+  String _keywordReply = "Silakan cek katalog produk kami.";
+
+  // Fitur 6 & 7: Multi-Bahasa & Pitch
+  String _targetLanguage = "id";
+  double _playbackRate = 1.0;
+
+  // Fitur 1, 2, 15: Multi-Select, Filter & Font Size per Chat
+  Set<String> _selectedMessageIds = {};
+  bool _isMultiSelectMode = false;
+  String _activeFilter = 'Teks';
+  double _chatFontSize = 16.0;
+
   StreamSubscription? _messageListener;
   StreamSubscription? _typingListener;
   StreamSubscription? _roomListener;
@@ -129,7 +144,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadWallpaper() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() { _wallpaperPath = prefs.getString('wallpaper_${widget.roomId}') ?? prefs.getString('wallpaper_path'); });
+    setState(() { 
+      _wallpaperPath = prefs.getString('wallpaper_${widget.roomId}') ?? prefs.getString('wallpaper_path'); 
+      _chatFontSize = prefs.getDouble('chat_font_size') ?? 16.0;
+    });
   }
 
   Future<void> _pickWallpaper() async {
@@ -181,14 +199,25 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _translateMessage(String text) async {
     showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()));
     try {
-      final url = Uri.parse('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=id&dt=t&q=${Uri.encodeComponent(text)}');
+      final url = Uri.parse('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$_targetLanguage&dt=t&q=${Uri.encodeComponent(text)}');
       final res = await http.get(url);
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final translated = data[0][0][0];
-        if (mounted) { Navigator.pop(context); showDialog(context: context, builder: (context) => AlertDialog(title: const Text('Terjemahan (ID)'), content: Text(translated), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
+        if (mounted) { Navigator.pop(context); showDialog(context: context, builder: (context) => AlertDialog(title: Text('Terjemahan ($_targetLanguage)'), content: Text(translated), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))])); }
       } else { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal menerjemahkan'))); } }
     } catch (e) { if (mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'))); } }
+  }
+
+  void _changeTargetLanguage() {
+    final langs = {'id': 'Indonesia', 'en': 'Inggris', 'ja': 'Jepang', 'ko': 'Korea', 'es': 'Spanyol'};
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text('Bahasa Terjemahan'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: langs.entries.map((e) => RadioListTile<String>(
+        title: Text(e.value), value: e.key, groupValue: _targetLanguage,
+        onChanged: (val) { if (val != null) { setState(() => _targetLanguage = val); Navigator.pop(context); } }
+      )).toList()),
+    ));
   }
 
   Future<void> _checkBlockStatus() async {
@@ -251,6 +280,11 @@ class _ChatScreenState extends State<ChatScreen> {
       _bizAwayOn = prefs.getBool('biz_away_on') ?? false;
       _bizAwayMsg = prefs.getString('biz_away_msg') ?? 'Mohon maaf, saat ini saya sedang sibuk.';
 
+      // Fitur 10
+      _keywordAutoReplyOn = prefs.getBool('keyword_auto_reply_on') ?? false;
+      _keyword = prefs.getString('keyword_trigger') ?? 'harga';
+      _keywordReply = prefs.getString('keyword_reply') ?? 'Silakan cek katalog kami.';
+
       final tickStr = prefs.getString('mod_tick_color') ?? 'blue';
       if (tickStr == 'blue') _tickColor = Colors.blue; else if (tickStr == 'grey') _tickColor = Colors.grey; else if (tickStr == 'purple') _tickColor = Colors.purple; else if (tickStr == 'green') _tickColor = Colors.green;
     });
@@ -258,15 +292,25 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _setupAutoReplies() {
-    if (!_isAutoReply && !_bizGreetingOn && !_bizAwayOn) return;
+    if (!_isAutoReply && !_bizGreetingOn && !_bizAwayOn && !_keywordAutoReplyOn) return;
+    
     _messageListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
         if (data['senderId'] != myUid && data['type'] == 'text') {
+           final msgText = data['text'].toString().toLowerCase();
            String autoReplyText = "";
-           if (_bizGreetingOn) { autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg'; }
-           else if (_bizAwayOn) { autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg'; }
-           else if (_isAutoReply) { autoReplyText = '🤖 [Auto-Reply]: $_autoReplyMsg'; }
+
+           // Fitur 10 Logic
+           if (_keywordAutoReplyOn && msgText.contains(_keyword.toLowerCase())) {
+             autoReplyText = '🤖 [Auto-Reply]: $_keywordReply';
+           } else if (_bizGreetingOn) {
+             autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg';
+           } else if (_bizAwayOn) {
+             autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg';
+           } else if (_isAutoReply) {
+             autoReplyText = '🤖 [Auto-Reply]: $_autoReplyMsg';
+           }
 
            if (autoReplyText.isNotEmpty) {
              FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').add({'type': 'text', 'text': autoReplyText, 'senderId': myUid, 'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Bot', 'timestamp': FieldValue.serverTimestamp(), 'status': 'sent'});
@@ -292,7 +336,13 @@ class _ChatScreenState extends State<ChatScreen> {
               setState(() {
                 _otherName = data['displayName'] ?? data['email']?.split('@')[0] ?? widget.roomName;
                 if (data['photoBase64'] != null && data['photoBase64'].toString().isNotEmpty) { _otherPhoto = data['photoBase64']; } else if (data['photoURL'] != null) { _otherPhoto = data['photoURL']; } else { _otherPhoto = ''; }
-                if (data['isOnline'] == true) { _otherStatus = 'Online'; } else if (data['lastSeen'] != null) { _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}'; } else { _otherStatus = 'Offline'; }
+                
+                // Cek apakah kita diblokir atau di-hide online
+                final blocked = (data['blockedUsers'] as List?) ?? [];
+                if (blocked.contains(myUid)) { _otherStatus = 'Offline'; } 
+                else if (data['isOnline'] == true) { _otherStatus = 'Online'; } 
+                else if (data['lastSeen'] != null) { _otherStatus = 'Terakhir dilihat ${DateFormat('HH:mm').format((data['lastSeen'] as Timestamp).toDate())}'; } 
+                else { _otherStatus = 'Offline'; }
               });
             }
           });
@@ -327,100 +377,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Riwayat chat dibersihkan.')));
   }
 
-  Future<void> _exportChatAsText() async {
+  Future<void> _exportChatAsCsv() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
-      String content = 'Ekspor Chat: ${widget.roomName}\n\n';
+      String csv = 'Waktu,Pengirim,Pesan\n';
       for (var doc in snapshot.docs) {
         final data = doc.data();
-        final time = data['timestamp'] != null ? DateFormat('dd/MM/yyyy HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-        final sender = data['senderName'] ?? 'User';
-        final text = data['type'] == 'text' ? data['text'] : '[Media: ${data['type']}]';
-        content += '[$time] $sender: $text\n';
+        final time = data['timestamp'] != null ? DateFormat('yyyy-MM-dd HH:mm:ss').format((data['timestamp'] as Timestamp).toDate()) : '';
+        final sender = (data['senderName'] ?? 'User').replaceAll(',', ' ');
+        final text = (data['type'] == 'text' ? data['text'] : '[Media: ${data['type']}]').toString().replaceAll(',', ' ').replaceAll('\n', ' ');
+        csv += '$time,$sender,$text\n';
       }
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/chat_export.txt');
-      await file.writeAsString(content);
+      final file = File('${dir.path}/chat_export_${DateTime.now().millisecondsSinceEpoch}.csv');
+      await file.writeAsString(csv);
       await OpenFilex.open(file.path);
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
-  }
-
-  Future<void> _exportChatAsHtml() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
-      String html = '''<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ekspor Chat</title><style>body{font-family:Arial;background:#e5ddd5;padding:20px}.header{text-align:center;padding:20px;background:#075E54;color:white;border-radius:10px 10px 0 0}.chat{background:#fff;padding:20px;border-radius:0 0 10px 10px}.msg{margin:8px 0;padding:8px 12px;border-radius:8px;max-width:70%}.me{background:#dcf8c6;margin-left:auto;text-align:right}.other{background:#f0f0f0}.time{font-size:10px;color:#999}.sender{font-weight:bold;font-size:12px;color:#075E54}</style></head><body><div class="header"><h2>${widget.roomName}</h2><p>Diekspor pada ${DateFormat('dd MMMM yyyy HH:mm').format(DateTime.now())}</p></div><div class="chat">''';
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final isMe = data['senderId'] == myUid;
-        final time = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-        final sender = data['senderName'] ?? 'User';
-        final text = data['type'] == 'text' ? data['text'] : '[${data['type'].toUpperCase()}]';
-        html += '<div class="msg ${isMe ? 'me' : 'other'}">';
-        if (!isMe) html += '<div class="sender">$sender</div>';
-        html += '<div>${text.toString().replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>';
-        html += '<div class="time">$time</div>';
-        html += '</div>';
-      }
-      html += '</div></body></html>';
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/chat_export_${DateTime.now().millisecondsSinceEpoch}.html');
-      await file.writeAsString(html);
-      await OpenFilex.open(file.path);
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor HTML: $e'))); }
-  }
-
-  // FITUR BARU: EKSPOR KE PDF
-  Future<void> _exportChatAsPdf() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
-      final pdf = pw.Document();
-
-      pdf.addPage(pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return [
-            pw.Header(level: 0, child: pw.Text('Ekspor Chat: ${widget.roomName}')),
-            pw.SizedBox(height: 10),
-            ...snapshot.docs.map((doc) {
-              final data = doc.data();
-              final isMe = data['senderId'] == myUid;
-              final time = data['timestamp'] != null ? DateFormat('dd/MM HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-              final sender = data['senderName'] ?? 'User';
-              final text = data['type'] == 'text' ? data['text'] : '[${data['type'].toUpperCase()}]';
-              
-              return pw.Container(
-                margin: const pw.EdgeInsets.only(bottom: 8),
-                padding: const pw.EdgeInsets.all(8),
-                decoration: pw.BoxDecoration(
-                  color: isMe ? PdfColors.green100 : PdfColors.grey200,
-                  borderRadius: pw.BorderRadius.circular(8),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: isMe ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(sender, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                    pw.Text(text, style: const pw.TextStyle(fontSize: 12)),
-                    pw.Text(time, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-                  ],
-                ),
-              );
-            }).toList(),
-          ];
-        },
-      ));
-
-      await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF berhasil dibuat!')));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor PDF: $e')));
-    }
-  }
-
-  // FITUR BARU: BACA PESAN (TTS)
-  Future<void> _speakMessage(String text) async {
-    await _tts.setLanguage("id-ID");
-    await _tts.setPitch(1.0);
-    await _tts.speak(text);
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor CSV: $e'))); }
   }
 
   List<TextSpan> _parseFormatting(String text, TextStyle baseStyle) {
@@ -448,6 +420,62 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (lastMatchEnd < text.length) { spans.add(TextSpan(text: text.substring(lastMatchEnd), style: baseStyle)); }
     return spans;
+  }
+
+  // FITUR 1 & 5: MULTI-SELECT LOGIC
+  void _toggleSelection(String docId) {
+    setState(() {
+      if (_selectedMessageIds.contains(docId)) {
+        _selectedMessageIds.remove(docId);
+        if (_selectedMessageIds.isEmpty) _isMultiSelectMode = false;
+      } else {
+        _selectedMessageIds.add(docId);
+        _isMultiSelectMode = true;
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedMessages() async {
+    if (_selectedMessageIds.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
+    for (var id in _selectedMessageIds) {
+      batch.delete(FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').doc(id));
+    }
+    await batch.commit();
+    setState(() { _selectedMessageIds.clear(); _isMultiSelectMode = false; });
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pesan terpilih dihapus')));
+  }
+
+  Future<void> _forwardSelectedMessages(List<DocumentSnapshot> allDocs) async {
+    if (_selectedMessageIds.isEmpty) return;
+    final selectedDocs = allDocs.where((doc) => _selectedMessageIds.contains(doc.id)).toList();
+    if (selectedDocs.isEmpty) return;
+    
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: selectedDocs.first.data() as Map<String, dynamic>)));
+    setState(() { _selectedMessageIds.clear(); _isMultiSelectMode = false; });
+  }
+
+  void _showFontSizeDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ukuran Teks Obrolan'),
+        content: StatefulBuilder(
+          builder: (context, setModalState) {
+            return Slider(
+              value: _chatFontSize, min: 12.0, max: 24.0, divisions: 12,
+              activeColor: const Color(0xFF25D366),
+              onChanged: (val) {
+                setModalState(() => _chatFontSize = val);
+                setState(() => _chatFontSize = val);
+                SharedPreferences.getInstance().then((prefs) => prefs.setDouble('chat_font_size', val));
+              },
+            );
+          }
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tutup'))],
+      ),
+    );
   }
 
   void _scheduleMessage() {
@@ -655,12 +683,8 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
-      // FITUR BACA PESAN (TTS)
-      if (data['type'] == 'text' && _ttsEnabled)
-        ListTile(leading: const Icon(Icons.volume_up, color: Colors.blueAccent), title: const Text('Baca Keras', style: TextStyle(color: Colors.blueAccent)), onTap: () { Navigator.pop(context); _speakMessage(text); }),
-        
-      if (widget.roomId != 'global' && _roomType != 'private' && !isMe)
-        ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
+      if (data['type'] == 'text' && _ttsEnabled) ListTile(leading: const Icon(Icons.volume_up, color: Colors.blueAccent), title: const Text('Baca Keras', style: TextStyle(color: Colors.blueAccent)), onTap: () { Navigator.pop(context); _speakMessage(text); }),
+      if (widget.roomId != 'global' && _roomType != 'private' && !isMe) ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
       ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
       ListTile(leading: const Icon(Icons.info_outline, color: Colors.blue), title: const Text('Info Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _showMessageInfo(doc, data); }),
       if (isMe && data['type'] == 'text') ListTile(leading: const Icon(Icons.edit, color: Colors.blue), title: const Text('Edit Pesan', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _editMessage(doc, text); }),
@@ -705,202 +729,263 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return ValueListenableBuilder<Color>(valueListenable: bubbleColorNotifier, builder: (context, currentBubbleColor, child) {
-      return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
-        appBar: AppBar(
-          backgroundColor: isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54), foregroundColor: Colors.white,
-          title: _isSearching 
-            ? TextField(controller: _searchController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'Cari pesan...', hintStyle: TextStyle(color: Colors.white70), border: InputBorder.none), onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()))
-            : InkWell(
-                onTap: () { if (_roomType == 'group' || _roomType == 'channel') { Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName))); } else if (_otherUid.isNotEmpty) { Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid))); } },
-                child: Row(children: [
-                  GestureDetector(
-                    onTap: () => _openProfilePicture(_otherPhoto),
-                    child: CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300]),
+      return ValueListenableBuilder<double>(valueListenable: bubbleRadiusNotifier, builder: (context, currentRadius, child) {
+        return Scaffold(
+          backgroundColor: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
+          appBar: AppBar(
+            backgroundColor: _isMultiSelectMode ? const Color(0xFF075E54) : (isDark ? const Color(0xFF1F2C34) : const Color(0xFF075E54)), foregroundColor: Colors.white,
+            leading: _isMultiSelectMode ? IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() { _selectedMessageIds.clear(); _isMultiSelectMode = false; })) : null,
+            title: _isMultiSelectMode 
+              ? Text('${_selectedMessageIds.length} dipilih')
+              : _isSearching 
+                ? TextField(controller: _searchController, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'Cari pesan...', hintStyle: TextStyle(color: Colors.white70), border: InputBorder.none), onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()))
+                : InkWell(
+                    onTap: () { if (_roomType == 'group' || _roomType == 'channel') { Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(roomId: widget.roomId, roomName: widget.roomName))); } else if (_otherUid.isNotEmpty) { Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: _otherUid))); } },
+                    child: Row(children: [
+                      GestureDetector(onTap: () => _openProfilePicture(_otherPhoto), child: CircleAvatar(radius: 20, backgroundImage: headerImage ?? const NetworkImage('https://i.pravatar.cc/150'), backgroundColor: Colors.grey[300])),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        if (_isOtherTyping) const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                        else if (_disappearingDuration > 0) const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
+                        else if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
+                      ])),
+                    ]),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(_otherName.isNotEmpty ? _otherName : widget.roomName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    if (_isOtherTyping) const Text('sedang mengetik...', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                    else if (_disappearingDuration > 0) const Text('🕒 Pesan sementara aktif', style: TextStyle(fontSize: 12, color: Colors.white70, fontStyle: FontStyle.italic))
-                    else if (_otherStatus.isNotEmpty) Text(_otherStatus, style: TextStyle(fontSize: 12, color: _otherStatus == 'Online' ? const Color(0xFF25D366) : Colors.white70)),
-                  ])),
-                ]),
-              ),
-          actions: [
-            IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () { setState(() { _isSearching = !_isSearching; if (!_isSearching) { _searchController.clear(); _searchQuery = ""; } }); }),
-            if (!_isSearching) PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) async { 
-              if (val == 'export_txt') _exportChatAsText(); 
-              if (val == 'export_html') _exportChatAsHtml();
-              if (val == 'export_pdf') _exportChatAsPdf(); // FITUR BARU PDF
-              if (val == 'clear') _clearChat(); 
-              if (val == 'wallpaper') _pickWallpaper();
-              if (val == 'info') { 
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatInfoScreen(roomId: widget.roomId, roomName: _otherName.isNotEmpty ? _otherName : widget.roomName, roomType: _roomType))); 
-              }
-            }, itemBuilder: (context) => [
-              const PopupMenuItem(value: 'info', child: Text('Info Obrolan')),
-              const PopupMenuItem(value: 'wallpaper', child: Text('Ganti Wallpaper Obrolan')),
-              const PopupMenuItem(value: 'export_txt', child: Text('Ekspor Chat (.txt)')), 
-              const PopupMenuItem(value: 'export_html', child: Text('Ekspor Chat (.html)')), 
-              const PopupMenuItem(value: 'export_pdf', child: Text('Ekspor Chat (.pdf)')), 
-              const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat'))
-            ]),
-          ],
-        ),
-        body: Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
-            image: _wallpaperPath != null ? DecorationImage(image: FileImage(File(_wallpaperPath!)), fit: BoxFit.cover, opacity: 0.3) : null,
+            actions: _isMultiSelectMode ? [
+              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _deleteSelectedMessages),
+              IconButton(icon: const Icon(Icons.forward), onPressed: () => _forwardSelectedMessages([])),
+            ] : [
+              IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () { setState(() { _isSearching = !_isSearching; if (!_isSearching) { _searchController.clear(); _searchQuery = ""; } }); }),
+              IconButton(icon: const Icon(Icons.text_fields), onPressed: _showFontSizeDialog),
+              if (!_isSearching) PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) async { 
+                if (val == 'export_txt') _exportChatAsText(); 
+                if (val == 'export_html') _exportChatAsHtml();
+                if (val == 'export_pdf') _exportChatAsPdf(); 
+                if (val == 'export_csv') _exportChatAsCsv(); // FITUR 5
+                if (val == 'clear') _clearChat(); 
+                if (val == 'wallpaper') _pickWallpaper();
+                if (val == 'lang') _changeTargetLanguage();
+                if (val == 'info') { await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatInfoScreen(roomId: widget.roomId, roomName: _otherName.isNotEmpty ? _otherName : widget.roomName, roomType: _roomType))); }
+              }, itemBuilder: (context) => [
+                const PopupMenuItem(value: 'info', child: Text('Info Obrolan')),
+                const PopupMenuItem(value: 'wallpaper', child: Text('Ganti Wallpaper Obrolan')),
+                const PopupMenuItem(value: 'lang', child: Text('Pilih Bahasa Terjemahan')),
+                const PopupMenuItem(value: 'export_txt', child: Text('Ekspor Chat (.txt)')), 
+                const PopupMenuItem(value: 'export_html', child: Text('Ekspor Chat (.html)')), 
+                const PopupMenuItem(value: 'export_pdf', child: Text('Ekspor Chat (.pdf)')), 
+                const PopupMenuItem(value: 'export_csv', child: Text('Ekspor Chat (.csv)')), 
+                const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat'))
+              ]),
+            ],
           ),
-          child: Column(children: [
-            if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
-            
-            if (_pinnedMessage != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), color: isDark ? const Color(0xFF1F2C34) : Colors.white,
-                child: Row(children: [
-                  const Icon(Icons.push_pin, color: Color(0xFF25D366), size: 20), const SizedBox(width: 8),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Pesan Disematkan', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF25D366), fontSize: 12)), Text(_pinnedMessage!['text'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13))])),
-                  IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': FieldValue.delete()}); }),
-                ]),
-              ),
-
-            Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(), builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-              final now = DateTime.now();
-              final docs = snapshot.data!.docs.where((doc) { 
-                final data = doc.data() as Map<String, dynamic>; 
-                if (data['expiresAt'] != null) { final expiresAt = (data['expiresAt'] as Timestamp).toDate(); if (now.isAfter(expiresAt)) { doc.reference.delete(); return false; } } 
-                final deletedFor = (data['deletedFor'] as List?) ?? []; 
-                if (deletedFor.contains(myUid)) return false;
-                if (_searchQuery.isNotEmpty) { final txt = data['text']?.toString().toLowerCase() ?? ''; if (!txt.contains(_searchQuery)) return false; }
-                return true; 
-              }).toList();
-              return ListView.builder(controller: _scrollController, reverse: true, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), itemCount: docs.length, itemBuilder: (context, index) {
-                final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
-                final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
-                final isDeleted = data['isDeleted'] == true; final type = data['type']; final isEdited = data['isEdited'] == true;
-                final isForwarded = data['isForwarded'] == true;
-                final replyTo = data['replyTo']; final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
-                String displayText = data['text'] ?? '';
-                if (isDeleted && !isMe) { displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus'; }
-                
-                return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft, 
-                  child: GestureDetector(
-                    onLongPress: () => _showMessageOptions(doc, isMe, displayText, data),
-                    onHorizontalDragEnd: (details) { if (details.primaryVelocity! > 0) { setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']}); } },
-                    onDoubleTap: () async {
-                      final reactionsList = Map<String, dynamic>.from(data['reactions'] ?? {});
-                      reactionsList[myUid] = '❤️';
-                      await doc.reference.update({'reactions': reactionsList});
-                    },
-                    child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
-                    if (isForwarded) Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.forward, size: 12, color: isDark ? Colors.grey : Colors.black54), const SizedBox(width: 4), Text('Diteruskan', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: isDark ? Colors.grey : Colors.black54))])),
-                    if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
-                    
-                    if (type == 'video') _VideoPlayerWidget(url: data['mediaUrl'])
-                    else if (type == 'image' && !_autoDownloadImage && !isMe)
-                      GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Foto', style: TextStyle(color: Colors.blue))])))
-                    else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
-                    else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
-                    
-                    else if (type == 'contact') 
-                      Container(width: 220, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [CircleAvatar(radius: 20, backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null, child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12))]))]),
-                        const Divider(),
-                        GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))), child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13))),
-                      ]))
-
-                    else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
-                    else if (type == 'audio' && !_autoDownloadAudio && !isMe) Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
-                    else if (type == 'audio') _AudioPlayerWidget(url: data['mediaUrl'], isMe: isMe)
-                    else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
-                    else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
-                    else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), 
-                      ...List.generate(2, (i) { 
-                        final options = List<String>.from(data['options'] ?? []); 
-                        final votes = Map<String, dynamic>.from(data['votes'] ?? {}); 
-                        final voteCount = votes.values.where((v) => v == i).length; 
-                        final totalVotes = votes.length; 
-                        final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); 
-                        return GestureDetector(
-                          onTap: () => _votePoll(doc.id, i, votes), 
-                          onLongPress: () => _showPollDetails(votes, i, options),
-                          child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))
-                        ); 
-                      })
-                    ]))
-                    else Text.rich(TextSpan(children: _parseFormatting(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: 16)))),
-                    
-                    if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
-                    Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),
-                  ]))),
-                );
-              });
-            })),
-            
-            if ((_isBlockedByMe || _hasBlockedMe))
-              Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: Text(_isBlockedByMe ? 'Anda telah memblokir kontak ini. Buka blokir di Info Kontak.' : 'Anda tidak dapat mengirim pesan ke kontak ini.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)))
-            else if (_isAnnouncement && !_isAdmin)
-              Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: const Text('Hanya admin yang dapat mengirim pesan di grup ini.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
-            else ...[
-              if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
+          body: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0B141A) : const Color(0xFFEFEAE2),
+              image: _wallpaperPath != null ? DecorationImage(image: NetworkImage(_wallpaperPath!), fit: BoxFit.cover, opacity: 0.3) : null,
+            ),
+            child: Column(children: [
+              if (_isUploading) const LinearProgressIndicator(color: Color(0xFF25D366)),
               
-              if (_showQuickReplies)
+              if (_pinnedMessage != null)
                 Container(
-                  height: 50, color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance.collection('users').doc(myUid).collection('quick_replies').snapshots(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
-                      return ListView.builder(
-                        scrollDirection: Axis.horizontal, itemCount: snapshot.data!.docs.length,
-                        itemBuilder: (context, index) {
-                          final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-                          return Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8), child: ActionChip(
-                            label: Text(data['shortcut'] ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
-                            backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white,
-                            onPressed: () { setState(() { _msgController.text = data['message'] ?? ''; _showQuickReplies = false; }); },
-                          ));
-                        },
-                      );
-                    },
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), color: isDark ? const Color(0xFF1F2C34) : Colors.white,
+                  child: Row(children: [
+                    const Icon(Icons.push_pin, color: Color(0xFF25D366), size: 20), const SizedBox(width: 8),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Pesan Disematkan', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF25D366), fontSize: 12)), Text(_pinnedMessage!['text'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13))])),
+                    IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () { FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': FieldValue.delete()}); }),
+                  ]),
                 ),
 
-              Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
-                  IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
-                  IconButton(icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.grey), onPressed: _showStickerPicker),
-                  IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
-                  Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
-                ]))),
-                const SizedBox(width: 8),
-                GestureDetector(onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null, onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null, child: CircleAvatar(backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366), radius: 24, child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)))),
-              ])),
-            ],
-          ]),
-        ),
-        floatingActionButton: _showScrollToBottom ? FloatingActionButton.small(onPressed: () { _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }, backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white, child: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF25D366))) : null,
-      );
+              Expanded(child: StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).snapshots(), builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final now = DateTime.now();
+                
+                // FITUR 2: FILTER PESAN
+                final docs = snapshot.data!.docs.where((doc) { 
+                  final data = doc.data() as Map<String, dynamic>; 
+                  if (data['expiresAt'] != null) { final expiresAt = (data['expiresAt'] as Timestamp).toDate(); if (now.isAfter(expiresAt)) { doc.reference.delete(); return false; } } 
+                  final deletedFor = (data['deletedFor'] as List?) ?? []; 
+                  if (deletedFor.contains(myUid)) return false;
+                  
+                  if (_searchQuery.isNotEmpty) {
+                    final txt = data['text']?.toString().toLowerCase() ?? '';
+                    if (!txt.contains(_searchQuery)) return false;
+                  }
+                  
+                  if (_activeFilter == 'Foto' && data['type'] != 'image') return false;
+                  if (_activeFilter == 'Video' && data['type'] != 'video') return false;
+                  
+                  return true; 
+                }).toList();
+
+                return Column(children: [
+                  // Chip Filter
+                  Container(
+                    height: 40, padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: ListView(scrollDirection: Axis.horizontal, children: ['Teks', 'Foto', 'Video'].map((f) {
+                      return Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(
+                        label: Text(f), selected: _activeFilter == f,
+                        onSelected: (val) { if (val) setState(() => _activeFilter = f); },
+                      ));
+                    }).toList()),
+                  ),
+                  
+                  Expanded(child: ListView.builder(controller: _scrollController, reverse: true, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), itemCount: docs.length, itemBuilder: (context, index) {
+                    final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
+                    final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
+                    final isDeleted = data['isDeleted'] == true; final type = data['type']; final isEdited = data['isEdited'] == true;
+                    final isForwarded = data['isForwarded'] == true;
+                    final replyTo = data['replyTo']; final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
+                    String displayText = data['text'] ?? '';
+                    if (isDeleted && !isMe) { displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus'; }
+                    
+                    final isSelected = _selectedMessageIds.contains(doc.id);
+
+                    return Align(
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft, 
+                      child: GestureDetector(
+                        onLongPress: () { if (_isMultiSelectMode) _toggleSelection(doc.id); else _showMessageOptions(doc, isMe, displayText, data); },
+                        onTap: () { if (_isMultiSelectMode) _toggleSelection(doc.id); },
+                        onHorizontalDragEnd: (details) { if (details.primaryVelocity! > 0 && !_isMultiSelectMode) { setState(() => _replyTo = {'text': displayText, 'senderName': data['senderName']}); } },
+                        onDoubleTap: () async {
+                          if (_isMultiSelectMode) return;
+                          final reactionsList = Map<String, dynamic>.from(data['reactions'] ?? {});
+                          reactionsList[myUid] = '❤️';
+                          await doc.reference.update({'reactions': reactionsList});
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), 
+                          padding: const EdgeInsets.all(10), 
+                          decoration: BoxDecoration(
+                            color: isSelected ? (isDark ? Colors.blueGrey : Colors.blue.shade100) : (isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white)),
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(12), topRight: const Radius.circular(12),
+                              bottomLeft: isMe ? const Radius.circular(12) : Radius.circular(currentRadius),
+                              bottomRight: isMe ? Radius.circular(currentRadius) : const Radius.circular(12),
+                            )
+                          ), 
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_isMultiSelectMode) Padding(padding: const EdgeInsets.only(right: 8), child: Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked, color: isSelected ? const Color(0xFF25D366) : Colors.grey)),
+                              Flexible(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
+                                  if (isForwarded) Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.forward, size: 12, color: isDark ? Colors.grey : Colors.black54), const SizedBox(width: 4), Text('Diteruskan', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: isDark ? Colors.grey : Colors.black54))])),
+                                  if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
+                                  
+                                  if (type == 'video') _VideoPlayerWidget(url: data['mediaUrl'])
+                                  else if (type == 'image' && !_autoDownloadImage && !isMe) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Foto', style: TextStyle(color: Colors.blue))])))
+                                  else if (type == 'image' && data['viewOnce'] == true) GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], true, doc), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.visibility, color: Colors.grey), SizedBox(width: 8), Text('Foto Sekali Lihat', style: TextStyle(fontStyle: FontStyle.italic))])))
+                                  else if (type == 'image') GestureDetector(onTap: () => _openMediaViewer(data['mediaUrl'], false, doc), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(data['mediaUrl'], width: 220, fit: BoxFit.cover)), if (displayText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(displayText, style: TextStyle(color: isDark ? Colors.white : Colors.black)))]))
+                                  else if (type == 'contact') Container(width: 220, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [CircleAvatar(radius: 20, backgroundImage: data['contactPhoto'] != null && data['contactPhoto'].toString().isNotEmpty ? MemoryImage(base64Decode(data['contactPhoto'])) : null, child: data['contactPhoto'] == null || data['contactPhoto'].toString().isEmpty ? const Icon(Icons.person, color: Colors.white) : null), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['contactName'] ?? 'Kontak', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), Text(data['contactJbId'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12))]))]), const Divider(), GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactInfoScreen(userId: data['contactUid']))), child: const Text('Lihat Profil', style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)))]))
+                                  else if (type == 'sticker') GestureDetector(onTap: () {}, child: Image.network(data['mediaUrl'], width: 150, height: 150, fit: BoxFit.contain))
+                                  else if (type == 'audio' && !_autoDownloadAudio && !isMe) Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: const Row(children: [Icon(Icons.download, color: Colors.blue), SizedBox(width: 8), Text('Unduh Pesan Suara', style: TextStyle(color: Colors.blue))]))
+                                  else if (type == 'audio') _AudioPlayerWidget(url: data['mediaUrl'], isMe: isMe, initialRate: _playbackRate)
+                                  else if (type == 'location') GestureDetector(onTap: () => launchUrl(Uri.parse(data['mediaUrl'])), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.location_on, color: Colors.red), const SizedBox(width: 8), const Text('Lokasi Saya', style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline))])))
+                                  else if (type == 'document') GestureDetector(onTap: () => _openDocument(data['mediaUrl']), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.insert_drive_file, color: Colors.blue), const SizedBox(width: 8), Expanded(child: Text(displayText, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline)))])))
+                                  else if (type == 'poll') Container(width: 250, padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(data['question'] ?? 'Voting', style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)), const SizedBox(height: 8), ...List.generate(2, (i) { final options = List<String>.from(data['options'] ?? []); final votes = Map<String, dynamic>.from(data['votes'] ?? {}); final voteCount = votes.values.where((v) => v == i).length; final totalVotes = votes.length; final percentage = totalVotes == 0 ? 0.0 : (voteCount / totalVotes); return GestureDetector(onTap: () => _votePoll(doc.id, i, votes), onLongPress: () => _showPollDetails(votes, i, options), child: Container(margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: votes[myUid] == i ? const Color(0xFF25D366).withOpacity(0.3) : Colors.transparent, border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)), child: Stack(children: [Container(width: 200 * percentage, height: 20, color: const Color(0xFF25D366).withOpacity(0.2)), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(options[i], style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14)), Text('$voteCount', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold))])]))); })]))
+                                  else Text.rich(TextSpan(children: _parseFormatting(displayText, TextStyle(color: isDeleted && !_isAntiDelete ? Colors.grey : (isDark ? Colors.white : Colors.black), fontStyle: isDeleted && !_isAntiDelete ? FontStyle.italic : FontStyle.normal, fontSize: _chatFontSize)))), // FITUR 15: Custom Font Size
+                                  
+                                  if (reactions.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 4, children: reactions.values.map((emoji) => Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: isDark ? Colors.black45 : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade400)), child: Text(emoji, style: const TextStyle(fontSize: 12)))).toList())),
+                                  Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [if (data['expiresAt'] != null) const Icon(Icons.timer, size: 12, color: Colors.grey), const SizedBox(width: 4), Text(timestamp, style: const TextStyle(fontSize: 10, color: Colors.grey)), if (isMe) ...[const SizedBox(width: 4), Icon(Icons.done_all, size: 14, color: data['status'] == 'read' ? _tickColor : Colors.grey)]]),
+                                ])
+                              )
+                            ]
+                          ),
+                        ),
+                      ),
+                    );
+                  })),
+                ]);
+              })),
+              
+              if ((_isBlockedByMe || _hasBlockedMe))
+                Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: Text(_isBlockedByMe ? 'Anda telah memblokir kontak ini. Buka blokir di Info Kontak.' : 'Anda tidak dapat mengirim pesan ke kontak ini.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey : Colors.black54, fontStyle: FontStyle.italic)))
+              else if (_isAnnouncement && !_isAdmin)
+                Container(width: double.infinity, padding: const EdgeInsets.all(16), color: isDark ? const Color(0xFF202C33) : Colors.grey[200], child: const Text('Hanya admin yang dapat mengirim pesan di grup ini.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)))
+              else ...[
+                if (_replyTo != null) Container(padding: const EdgeInsets.all(8), color: isDark ? const Color(0xFF1F2C34) : Colors.white, child: Row(children: [const Icon(Icons.reply, color: Color(0xFF00A884)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_replyTo!['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(_replyTo!['text'], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))])), IconButton(icon: const Icon(Icons.close, size: 20), onPressed: () => setState(() => _replyTo = null))])),
+                
+                if (_showQuickReplies)
+                  Container(
+                    height: 50, color: isDark ? const Color(0xFF1F2C34) : Colors.grey[100],
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance.collection('users').doc(myUid).collection('quick_replies').snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox.shrink();
+                        return ListView.builder(
+                          scrollDirection: Axis.horizontal, itemCount: snapshot.data!.docs.length,
+                          itemBuilder: (context, index) {
+                            final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                            return Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8), child: ActionChip(
+                              label: Text(data['shortcut'] ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                              backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white,
+                              onPressed: () { setState(() { _msgController.text = data['message'] ?? ''; _showQuickReplies = false; }); },
+                            ));
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Expanded(child: Container(decoration: BoxDecoration(color: isDark ? const Color(0xFF1F2C34) : Colors.white, borderRadius: BorderRadius.circular(25)), child: Row(children: [
+                    IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey), onPressed: _showEmojiPicker),
+                    IconButton(icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.grey), onPressed: _showStickerPicker),
+                    IconButton(icon: const Icon(Icons.attach_file, color: Colors.grey), onPressed: _isUploading ? null : _showAttachmentMenu),
+                    Expanded(child: TextField(controller: _msgController, onChanged: _onTextChanged, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'Ketik pesan', hintStyle: TextStyle(color: Colors.grey), border: InputBorder.none))),
+                  ]))),
+                  const SizedBox(width: 8),
+                  GestureDetector(onLongPressStart: _msgController.text.isEmpty ? (_) => _startRecording() : null, onLongPressEnd: _msgController.text.isEmpty ? (_) => _stopRecording() : null, child: CircleAvatar(backgroundColor: _isRecording ? Colors.red : const Color(0xFF25D366), radius: 24, child: IconButton(icon: Icon(_isRecording ? Icons.mic : (_msgController.text.isEmpty ? Icons.mic : Icons.send), color: Colors.white, size: 20), onPressed: _isUploading ? null : (_msgController.text.isEmpty ? null : _sendMessage)))),
+                ])),
+              ],
+            ]),
+          ),
+          floatingActionButton: _showScrollToBottom ? FloatingActionButton.small(onPressed: () { _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }, backgroundColor: isDark ? const Color(0xFF202C33) : Colors.white, child: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF25D366))) : null,
+        );
+      });
     });
   }
 }
 
 class _AudioPlayerWidget extends StatefulWidget {
-  final String url; final bool isMe;
-  const _AudioPlayerWidget({required this.url, required this.isMe});
+  final String url; final bool isMe; final double initialRate;
+  const _AudioPlayerWidget({required this.url, required this.isMe, this.initialRate = 1.0});
   @override State<_AudioPlayerWidget> createState() => _AudioPlayerWidgetState();
 }
 class _AudioPlayerWidgetState extends State<_AudioPlayerWidget> {
   final AudioPlayer _player = AudioPlayer();
   Duration _duration = Duration.zero; Duration _position = Duration.zero; bool _isPlaying = false;
-  @override void initState() { super.initState(); _player.onDurationChanged.listen((d) => setState(() => _duration = d)); _player.onPositionChanged.listen((p) => setState(() => _position = p)); _player.onPlayerComplete.listen((_) => setState(() { _isPlaying = false; _position = Duration.zero; })); }
-  @override Widget build(BuildContext context) { return Row(mainAxisSize: MainAxisSize.min, children: [ IconButton(icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), onPressed: () async { if (_isPlaying) { await _player.pause(); } else { await _player.play(UrlSource(widget.url)); } setState(() => _isPlaying = !_isPlaying); }), Expanded(child: Slider(value: _position.inMilliseconds.toDouble(), max: _duration.inMilliseconds.toDouble() > 0 ? _duration.inMilliseconds.toDouble() : 1, onChanged: (val) { _player.seek(Duration(milliseconds: val.toInt())); })), Text('${_position.inMinutes}:${(_position.inSeconds % 60).toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 10, color: Colors.grey)) ]); }
+  double _currentRate = 1.0;
+
+  @override void initState() { 
+    super.initState(); 
+    _currentRate = widget.initialRate;
+    _player.setPlaybackRate(_currentRate);
+    _player.onDurationChanged.listen((d) => setState(() => _duration = d)); 
+    _player.onPositionChanged.listen((p) => setState(() => _position = p)); 
+    _player.onPlayerComplete.listen((_) => setState(() { _isPlaying = false; _position = Duration.zero; })); 
+  }
+  
+  void _changeRate() {
+    setState(() {
+      if (_currentRate == 1.0) _currentRate = 1.5;
+      else if (_currentRate == 1.5) _currentRate = 2.0;
+      else _currentRate = 1.0;
+      _player.setPlaybackRate(_currentRate);
+    });
+  }
+
+  @override Widget build(BuildContext context) { 
+    return Row(mainAxisSize: MainAxisSize.min, children: [ 
+      IconButton(icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: widget.isMe ? const Color(0xFF00A884) : Colors.blue, size: 36), onPressed: () async { if (_isPlaying) { await _player.pause(); } else { await _player.play(UrlSource(widget.url)); } setState(() => _isPlaying = !_isPlaying); }), 
+      Expanded(child: Slider(value: _position.inMilliseconds.toDouble(), max: _duration.inMilliseconds.toDouble() > 0 ? _duration.inMilliseconds.toDouble() : 1, onChanged: (val) { _player.seek(Duration(milliseconds: val.toInt())); })), 
+      TextButton(onPressed: _changeRate, child: Text('${_currentRate}x', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
+      Text('${_position.inMinutes}:${(_position.inSeconds % 60).toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 10, color: Colors.grey)) 
+    ]); 
+  }
 }
 
 class _VideoPlayerWidget extends StatefulWidget {

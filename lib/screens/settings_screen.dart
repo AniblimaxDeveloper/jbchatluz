@@ -40,6 +40,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoDownloadImage = true;
   bool _autoDownloadAudio = true;
   double _fontSize = 1.0;
+  double _bubbleRadius = 12.0;
+  int _autoLockMinutes = 0;
+  bool _silenceUnknown = false;
+  double _bubbleRadius = 12.0;
+  int _autoLockMinutes = 0;
+  bool _silenceUnknown = false;
 
   @override
   void initState() { super.initState(); _loadSettings();
@@ -78,6 +84,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
       _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
       _fontSize = prefs.getDouble('font_size_scale') ?? 1.0;
+      _bubbleRadius = prefs.getDouble('bubble_radius') ?? 12.0;
+      _autoLockMinutes = prefs.getInt('auto_lock_minutes') ?? 0;
+      _silenceUnknown = prefs.getBool('silence_unknown_callers') ?? false;
+      _bubbleRadius = prefs.getDouble('bubble_radius') ?? 12.0;
+      _autoLockMinutes = prefs.getInt('auto_lock_minutes') ?? 0;
+      _silenceUnknown = prefs.getBool('silence_unknown_callers') ?? false;
     });
   }
 
@@ -100,6 +112,246 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SwitchListTile(secondary: const Icon(Icons.dark_mode), title: Text('Mode Gelap', style: TextStyle(color: textColor)), value: _isDarkMode, activeColor: const Color(0xFF25D366), onChanged: (val) async { final prefs = await SharedPreferences.getInstance(); await prefs.setBool('darkMode', val); themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light; setState(() => _isDarkMode = val); }),
           ListTile(leading: const Icon(Icons.format_size), title: Text('Ukuran Teks', style: TextStyle(color: textColor)), subtitle: Slider(value: _fontSize, min: 0.8, max: 1.5, divisions: 7, activeColor: const Color(0xFF25D366), onChanged: (val) { setState(() => _fontSize = val); fontSizeNotifier.value = val; SharedPreferences.getInstance().then((prefs) => prefs.setDouble('font_size_scale', val)); })),
           ListTile(leading: const Icon(Icons.palette), title: Text('Warna Bubble Chat', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _showBubbleColorPicker),
+          
+          ListTile(
+            leading: const Icon(Icons.rounded_corner, color: Colors.teal),
+            title: Text('Sudut Bubble Chat', style: TextStyle(color: textColor)),
+            subtitle: Slider(
+              value: _bubbleRadius, min: 0.0, max: 25.0, divisions: 25,
+              activeColor: const Color(0xFF25D366),
+              onChanged: (val) {
+                setState(() => _bubbleRadius = val);
+                bubbleRadiusNotifier.value = val;
+                SharedPreferences.getInstance().then((prefs) => prefs.setDouble('bubble_radius', val));
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.pin_drop, color: Colors.purple),
+            title: Text('Wallpaper Predefined', style: TextStyle(color: textColor)),
+            subtitle: const Text('Pilih dari koleksi bawaan'),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Pilih Wallpaper'),
+                  content: SizedBox(
+                    height: 300, width: 300,
+                    child: GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
+                      itemCount: 6,
+                      itemBuilder: (context, index) {
+                        final urls = [
+                          'https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg',
+                          'https://i.pinimg.com/736x/8e/48/2e/8e482ea6e6b7d41b4b8b8e1c3e4f5a6b.jpg',
+                          'https://i.pinimg.com/736x/9b/67/8d/9b678d6a9d7e9c3f8a4b5c6d7e8f9a0b.jpg',
+                          'https://i.pinimg.com/736x/1a/2b/3c/1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.jpg',
+                          'https://i.pinimg.com/736x/2b/3c/4d/2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e.jpg',
+                          'https://i.pinimg.com/736x/3c/4d/5e/3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f.jpg',
+                        ];
+                        return GestureDetector(
+                          onTap: () {
+                            final prefs = SharedPreferences.getInstance();
+                            prefs.then((p) => p.setString('wallpaper_path', urls[index]));
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Wallpaper diset!')));
+                          },
+                          child: Image.network(urls[index], fit: BoxFit.cover),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.timer, color: Colors.redAccent),
+            title: Text('Auto-Lock (Inactivity)', style: TextStyle(color: textColor)),
+            subtitle: Text(_autoLockMinutes == 0 ? 'Nonaktif' : ' Menit'),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Auto-Lock Timer'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [0, 1, 5, 10].map((mins) => RadioListTile<int>(
+                      title: Text(mins == 0 ? 'Nonaktif' : ' Menit'),
+                      value: mins,
+                      groupValue: _autoLockMinutes,
+                      onChanged: (val) async {
+                        if (val != null) {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setInt('auto_lock_minutes', val);
+                          setState(() => _autoLockMinutes = val);
+                          if (context.mounted) Navigator.pop(context);
+                        }
+                      },
+                    )).toList(),
+                  ),
+                ),
+              );
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.phone_disabled, color: Colors.red),
+            title: Text('Bisukan Penelepon Tak Dikenal', style: TextStyle(color: textColor)),
+            subtitle: const Text('Tolak panggilan dari nomor asing'),
+            value: _silenceUnknown,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('silence_unknown_callers', val);
+              setState(() => _silenceUnknown = val);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.phone_callback, color: Colors.deepPurple),
+            title: Text('Fake Call Generator', style: TextStyle(color: textColor)),
+            subtitle: const Text('Buat panggilan masuk palsu'),
+            onTap: () {
+              final controller = TextEditingController(text: 'Boss');
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Nama Penelepon Palsu'),
+                  content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => FakeCallScreen(callerName: controller.text.trim())));
+                      },
+                      child: const Text('Mulai Panggilan'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          
+          ListTile(
+            leading: const Icon(Icons.rounded_corner, color: Colors.teal),
+            title: Text('Sudut Bubble Chat', style: TextStyle(color: textColor)),
+            subtitle: Slider(
+              value: _bubbleRadius, min: 0.0, max: 25.0, divisions: 25,
+              activeColor: const Color(0xFF25D366),
+              onChanged: (val) {
+                setState(() => _bubbleRadius = val);
+                bubbleRadiusNotifier.value = val;
+                SharedPreferences.getInstance().then((prefs) => prefs.setDouble('bubble_radius', val));
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.pin_drop, color: Colors.purple),
+            title: Text('Wallpaper Predefined', style: TextStyle(color: textColor)),
+            subtitle: const Text('Pilih dari koleksi bawaan'),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Pilih Wallpaper'),
+                  content: SizedBox(
+                    height: 300, width: 300,
+                    child: GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
+                      itemCount: 6,
+                      itemBuilder: (context, index) {
+                        final urls = [
+                          'https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg',
+                          'https://i.pinimg.com/736x/8e/48/2e/8e482ea6e6b7d41b4b8b8e1c3e4f5a6b.jpg',
+                          'https://i.pinimg.com/736x/9b/67/8d/9b678d6a9d7e9c3f8a4b5c6d7e8f9a0b.jpg',
+                          'https://i.pinimg.com/736x/1a/2b/3c/1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.jpg',
+                          'https://i.pinimg.com/736x/2b/3c/4d/2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e.jpg',
+                          'https://i.pinimg.com/736x/3c/4d/5e/3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f.jpg',
+                        ];
+                        return GestureDetector(
+                          onTap: () {
+                            final prefs = SharedPreferences.getInstance();
+                            prefs.then((p) => p.setString('wallpaper_path', urls[index]));
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Wallpaper diset!')));
+                          },
+                          child: Image.network(urls[index], fit: BoxFit.cover),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.timer, color: Colors.redAccent),
+            title: Text('Auto-Lock (Inactivity)', style: TextStyle(color: textColor)),
+            subtitle: Text(_autoLockMinutes == 0 ? 'Nonaktif' : ' Menit'),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Auto-Lock Timer'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [0, 1, 5, 10].map((mins) => RadioListTile<int>(
+                      title: Text(mins == 0 ? 'Nonaktif' : ' Menit'),
+                      value: mins,
+                      groupValue: _autoLockMinutes,
+                      onChanged: (val) async {
+                        if (val != null) {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setInt('auto_lock_minutes', val);
+                          setState(() => _autoLockMinutes = val);
+                          if (context.mounted) Navigator.pop(context);
+                        }
+                      },
+                    )).toList(),
+                  ),
+                ),
+              );
+            },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.phone_disabled, color: Colors.red),
+            title: Text('Bisukan Penelepon Tak Dikenal', style: TextStyle(color: textColor)),
+            subtitle: const Text('Tolak panggilan dari nomor asing'),
+            value: _silenceUnknown,
+            activeColor: const Color(0xFF25D366),
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('silence_unknown_callers', val);
+              setState(() => _silenceUnknown = val);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.phone_callback, color: Colors.deepPurple),
+            title: Text('Fake Call Generator', style: TextStyle(color: textColor)),
+            subtitle: const Text('Buat panggilan masuk palsu'),
+            onTap: () {
+              final controller = TextEditingController(text: 'Boss');
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Nama Penelepon Palsu'),
+                  content: TextField(controller: controller, decoration: const InputDecoration(border: OutlineInputBorder())),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => FakeCallScreen(callerName: controller.text.trim())));
+                      },
+                      child: const Text('Mulai Panggilan'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
           ListTile(leading: const Icon(Icons.font_download), title: Text('Ganti Font', style: TextStyle(color: textColor)), subtitle: Text('Font: ${fontNotifier.value}'), trailing: const Icon(Icons.chevron_right), onTap: _showFontPicker),
           ListTile(leading: const Icon(Icons.wallpaper), title: Text('Wallpaper Chat (Global)', style: TextStyle(color: textColor)), trailing: const Icon(Icons.chevron_right), onTap: _pickWallpaper),
           ListTile(leading: const Icon(Icons.check_circle, color: Colors.blue), title: Text('Warna Centang', style: TextStyle(color: textColor)), subtitle: Text(_tickColor.toUpperCase()), trailing: const Icon(Icons.chevron_right), onTap: _showTickColorPicker),

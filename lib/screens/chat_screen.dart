@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,12 +20,17 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:gal/gal.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../main.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
 import 'group_info_screen.dart';
 import 'forward_screen.dart';
 import 'media_preview_screen.dart';
+import 'chat_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
@@ -39,6 +45,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
+  final FlutterTts _tts = FlutterTts();
   
   bool _isUploading = false;
   String myUid = FirebaseAuth.instance.currentUser?.uid ?? "";
@@ -59,6 +66,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _antiViewOnce = false;
   bool _autoDownloadImage = true;
   bool _autoDownloadAudio = true;
+  bool _ttsEnabled = true;
   Color _tickColor = Colors.blue;
   String _autoReplyMsg = "";
   
@@ -115,6 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _msgController.dispose();
     _searchController.dispose();
     _scrollController.dispose();
+    _tts.stop();
     super.dispose();
   }
 
@@ -234,6 +243,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _antiViewOnce = prefs.getBool('mod_anti_viewonce') ?? false;
       _autoDownloadImage = prefs.getBool('auto_download_image') ?? true;
       _autoDownloadAudio = prefs.getBool('auto_download_audio') ?? true;
+      _ttsEnabled = prefs.getBool('tts_enabled') ?? true;
       _autoReplyMsg = prefs.getString('mod_auto_reply_msg') ?? 'Saya sedang sibuk.';
       
       _bizGreetingOn = prefs.getBool('biz_greeting_on') ?? false;
@@ -249,12 +259,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _setupAutoReplies() {
     if (!_isAutoReply && !_bizGreetingOn && !_bizAwayOn) return;
-    
     _messageListener = FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: true).limit(1).snapshots().listen((snap) {
       if (snap.docs.isNotEmpty) {
         final data = snap.docs.first.data();
         if (data['senderId'] != myUid && data['type'] == 'text') {
-           
            String autoReplyText = "";
            if (_bizGreetingOn) { autoReplyText = '👋 [Pesan Salam]: $_bizGreetingMsg'; }
            else if (_bizAwayOn) { autoReplyText = '🌙 [Pesan Sibuk]: $_bizAwayMsg'; }
@@ -319,7 +327,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Riwayat chat dibersihkan.')));
   }
 
-  Future<void> _exportChat() async {
+  Future<void> _exportChatAsText() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
       String content = 'Ekspor Chat: ${widget.roomName}\n\n';
@@ -337,42 +345,108 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor: $e'))); }
   }
 
-  // FUNGSI FORMAT TEKS & LINK
+  Future<void> _exportChatAsHtml() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
+      String html = '''<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ekspor Chat</title><style>body{font-family:Arial;background:#e5ddd5;padding:20px}.header{text-align:center;padding:20px;background:#075E54;color:white;border-radius:10px 10px 0 0}.chat{background:#fff;padding:20px;border-radius:0 0 10px 10px}.msg{margin:8px 0;padding:8px 12px;border-radius:8px;max-width:70%}.me{background:#dcf8c6;margin-left:auto;text-align:right}.other{background:#f0f0f0}.time{font-size:10px;color:#999}.sender{font-weight:bold;font-size:12px;color:#075E54}</style></head><body><div class="header"><h2>${widget.roomName}</h2><p>Diekspor pada ${DateFormat('dd MMMM yyyy HH:mm').format(DateTime.now())}</p></div><div class="chat">''';
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final isMe = data['senderId'] == myUid;
+        final time = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
+        final sender = data['senderName'] ?? 'User';
+        final text = data['type'] == 'text' ? data['text'] : '[${data['type'].toUpperCase()}]';
+        html += '<div class="msg ${isMe ? 'me' : 'other'}">';
+        if (!isMe) html += '<div class="sender">$sender</div>';
+        html += '<div>${text.toString().replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</div>';
+        html += '<div class="time">$time</div>';
+        html += '</div>';
+      }
+      html += '</div></body></html>';
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/chat_export_${DateTime.now().millisecondsSinceEpoch}.html');
+      await file.writeAsString(html);
+      await OpenFilex.open(file.path);
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor HTML: $e'))); }
+  }
+
+  // FITUR BARU: EKSPOR KE PDF
+  Future<void> _exportChatAsPdf() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).collection('messages').orderBy('timestamp', descending: false).get();
+      final pdf = pw.Document();
+
+      pdf.addPage(pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return [
+            pw.Header(level: 0, child: pw.Text('Ekspor Chat: ${widget.roomName}')),
+            pw.SizedBox(height: 10),
+            ...snapshot.docs.map((doc) {
+              final data = doc.data();
+              final isMe = data['senderId'] == myUid;
+              final time = data['timestamp'] != null ? DateFormat('dd/MM HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
+              final sender = data['senderName'] ?? 'User';
+              final text = data['type'] == 'text' ? data['text'] : '[${data['type'].toUpperCase()}]';
+              
+              return pw.Container(
+                margin: const pw.EdgeInsets.only(bottom: 8),
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(
+                  color: isMe ? PdfColors.green100 : PdfColors.grey200,
+                  borderRadius: pw.BorderRadius.circular(8),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: isMe ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(sender, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.Text(text, style: const pw.TextStyle(fontSize: 12)),
+                    pw.Text(time, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+                  ],
+                ),
+              );
+            }).toList(),
+          ];
+        },
+      ));
+
+      await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF berhasil dibuat!')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal ekspor PDF: $e')));
+    }
+  }
+
+  // FITUR BARU: BACA PESAN (TTS)
+  Future<void> _speakMessage(String text) async {
+    await _tts.setLanguage("id-ID");
+    await _tts.setPitch(1.0);
+    await _tts.speak(text);
+  }
+
   List<TextSpan> _parseFormatting(String text, TextStyle baseStyle) {
     final RegExp combinedRegex = RegExp(r'(\*[^*]+\*|_[^_]+_|~[^~]+~|https?://[^\s]+)');
     List<TextSpan> spans = [];
     int lastMatchEnd = 0;
 
     for (final Match match in combinedRegex.allMatches(text)) {
-      if (match.start > lastMatchEnd) {
-        spans.add(TextSpan(text: text.substring(lastMatchEnd, match.start), style: baseStyle));
-      }
+      if (match.start > lastMatchEnd) { spans.add(TextSpan(text: text.substring(lastMatchEnd, match.start), style: baseStyle)); }
       String matchedText = match.group(0)!;
       TextStyle newStyle = baseStyle;
       String cleanText = matchedText;
 
-      if (matchedText.startsWith('*') && matchedText.endsWith('*')) {
-        newStyle = baseStyle.copyWith(fontWeight: FontWeight.bold);
-        cleanText = matchedText.substring(1, matchedText.length - 1);
-      } else if (matchedText.startsWith('_') && matchedText.endsWith('_')) {
-        newStyle = baseStyle.copyWith(fontStyle: FontStyle.italic);
-        cleanText = matchedText.substring(1, matchedText.length - 1);
-      } else if (matchedText.startsWith('~') && matchedText.endsWith('~')) {
-        newStyle = baseStyle.copyWith(decoration: TextDecoration.lineThrough);
-        cleanText = matchedText.substring(1, matchedText.length - 1);
-      } else {
+      if (matchedText.startsWith('*') && matchedText.endsWith('*')) { newStyle = baseStyle.copyWith(fontWeight: FontWeight.bold); cleanText = matchedText.substring(1, matchedText.length - 1); }
+      else if (matchedText.startsWith('_') && matchedText.endsWith('_')) { newStyle = baseStyle.copyWith(fontStyle: FontStyle.italic); cleanText = matchedText.substring(1, matchedText.length - 1); }
+      else if (matchedText.startsWith('~') && matchedText.endsWith('~')) { newStyle = baseStyle.copyWith(decoration: TextDecoration.lineThrough); cleanText = matchedText.substring(1, matchedText.length - 1); }
+      else {
         newStyle = baseStyle.copyWith(color: Colors.blue, decoration: TextDecoration.underline);
         spans.add(TextSpan(text: cleanText, style: newStyle, recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(cleanText))));
         lastMatchEnd = match.end;
         continue;
       }
-
       spans.add(TextSpan(text: cleanText, style: newStyle));
       lastMatchEnd = match.end;
     }
-    if (lastMatchEnd < text.length) {
-      spans.add(TextSpan(text: text.substring(lastMatchEnd), style: baseStyle));
-    }
+    if (lastMatchEnd < text.length) { spans.add(TextSpan(text: text.substring(lastMatchEnd), style: baseStyle)); }
     return spans;
   }
 
@@ -581,6 +655,10 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
       Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: ['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => GestureDetector(onTap: () async { final reactions = Map<String, dynamic>.from(data['reactions'] ?? {}); reactions[myUid] = emoji; await doc.reference.update({'reactions': reactions}); if (context.mounted) Navigator.pop(context); }, child: Text(emoji, style: const TextStyle(fontSize: 28)))).toList())),
       const Divider(),
+      // FITUR BACA PESAN (TTS)
+      if (data['type'] == 'text' && _ttsEnabled)
+        ListTile(leading: const Icon(Icons.volume_up, color: Colors.blueAccent), title: const Text('Baca Keras', style: TextStyle(color: Colors.blueAccent)), onTap: () { Navigator.pop(context); _speakMessage(text); }),
+        
       if (widget.roomId != 'global' && _roomType != 'private' && !isMe)
         ListTile(leading: const Icon(Icons.person, color: Colors.blue), title: const Text('Balas Pribadi', style: TextStyle(color: Colors.blue)), onTap: () { Navigator.pop(context); _replyPrivately(data['senderId'], data['senderName']); }),
       ListTile(leading: const Icon(Icons.translate, color: Colors.teal), title: const Text('Terjemahkan ke ID', style: TextStyle(color: Colors.teal)), onTap: () { Navigator.pop(context); _translateMessage(text); }),
@@ -589,6 +667,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (data['type'] != 'text' && data['type'] != 'poll' && data['type'] != 'contact') ListTile(leading: const Icon(Icons.share, color: Colors.green), title: const Text('Bagikan ke...', style: TextStyle(color: Colors.green)), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.push_pin, color: Colors.blue), title: const Text('Sematkan Pesan'), onTap: () async { await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).update({'pinnedMessage': {'text': text, 'senderName': data['senderName']}}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.reply), title: const Text('Balas'), onTap: () { setState(() => _replyTo = {'text': text, 'senderName': data['senderName']}); Navigator.pop(context); }),
+      ListTile(leading: const Icon(Icons.forward), title: const Text('Teruskan'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => ForwardScreen(messageData: data))); }),
       ListTile(leading: const Icon(Icons.star_border), title: const Text('Beri Bintang'), onTap: () async { await doc.reference.update({'isStarred': true}); if (context.mounted) Navigator.pop(context); }),
       ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Hapus untuk Saya'), onTap: () async { await doc.reference.update({'deletedFor': FieldValue.arrayUnion([myUid])}); if (context.mounted) Navigator.pop(context); }),
       if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text('Hapus untuk Semua', style: TextStyle(color: Colors.red)), onTap: () async { await doc.reference.update({'isDeleted': true, 'text': '🚫 Pesan ini telah dihapus'}); if (context.mounted) Navigator.pop(context); }),
@@ -650,13 +729,21 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
           actions: [
             IconButton(icon: Icon(_isSearching ? Icons.close : Icons.search), onPressed: () { setState(() { _isSearching = !_isSearching; if (!_isSearching) { _searchController.clear(); _searchQuery = ""; } }); }),
-            if (!_isSearching) PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) { 
-              if (val == 'export') _exportChat(); 
+            if (!_isSearching) PopupMenuButton<String>(icon: const Icon(Icons.more_vert), onSelected: (val) async { 
+              if (val == 'export_txt') _exportChatAsText(); 
+              if (val == 'export_html') _exportChatAsHtml();
+              if (val == 'export_pdf') _exportChatAsPdf(); // FITUR BARU PDF
               if (val == 'clear') _clearChat(); 
               if (val == 'wallpaper') _pickWallpaper();
+              if (val == 'info') { 
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatInfoScreen(roomId: widget.roomId, roomName: _otherName.isNotEmpty ? _otherName : widget.roomName, roomType: _roomType))); 
+              }
             }, itemBuilder: (context) => [
+              const PopupMenuItem(value: 'info', child: Text('Info Obrolan')),
               const PopupMenuItem(value: 'wallpaper', child: Text('Ganti Wallpaper Obrolan')),
-              const PopupMenuItem(value: 'export', child: Text('Ekspor Chat')), 
+              const PopupMenuItem(value: 'export_txt', child: Text('Ekspor Chat (.txt)')), 
+              const PopupMenuItem(value: 'export_html', child: Text('Ekspor Chat (.html)')), 
+              const PopupMenuItem(value: 'export_pdf', child: Text('Ekspor Chat (.pdf)')), 
               const PopupMenuItem(value: 'clear', child: Text('Bersihkan Chat'))
             ]),
           ],
@@ -694,6 +781,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 final doc = docs[index]; final data = doc.data() as Map<String, dynamic>;
                 final isMe = data['senderId'] == myUid; final timestamp = data['timestamp'] != null ? DateFormat('HH:mm').format((data['timestamp'] as Timestamp).toDate()) : '';
                 final isDeleted = data['isDeleted'] == true; final type = data['type']; final isEdited = data['isEdited'] == true;
+                final isForwarded = data['isForwarded'] == true;
                 final replyTo = data['replyTo']; final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
                 String displayText = data['text'] ?? '';
                 if (isDeleted && !isMe) { displayText = _isAntiDelete ? '👻 [Anti-Delete]: $displayText' : '🚫 Pesan ini telah dihapus'; }
@@ -710,6 +798,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                     child: Container(margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isMe ? (isDark ? const Color(0xFF005C4B) : currentBubbleColor) : (isDark ? const Color(0xFF202C33) : Colors.white), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     if (!isMe && widget.roomId != 'global' && _roomType != 'private') Text(data['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00A884))),
+                    if (isForwarded) Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.forward, size: 12, color: isDark ? Colors.grey : Colors.black54), const SizedBox(width: 4), Text('Diteruskan', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: isDark ? Colors.grey : Colors.black54))])),
                     if (replyTo != null) Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.black12, borderRadius: BorderRadius.circular(8), border: const Border(left: BorderSide(color: Color(0xFF00A884), width: 4))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(replyTo['senderName'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF00A884))), Text(replyTo['text'], maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black87))])),
                     
                     if (type == 'video') _VideoPlayerWidget(url: data['mediaUrl'])

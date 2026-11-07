@@ -35,6 +35,9 @@ dependencies:
   qr_flutter: ^4.1.0
   gal: ^2.3.0
   mobile_scanner: ^5.2.3
+  flutter_tts: ^4.0.2
+  pdf: ^3.11.1
+  printing: ^5.13.1
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
